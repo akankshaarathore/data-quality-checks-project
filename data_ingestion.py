@@ -85,3 +85,21 @@ try:
 except Exception as e:
   print(f"Error validating data: {e}")
   exit(1)
+
+#Establishing Connection with PostgreSQL Database
+print("\n Connecting to PostgreSQL")
+print(f"Host: {DB_CONFIG['host']}")
+print(f"Database: {DB_CONFIG['database']}")
+
+try:
+  conn = psycopg2.connect(**DB_CONFIG)
+  cursor = conn.cursor()
+
+  cursor.execute("SELECT version();")
+  version = cursor.fetchone()[0]
+  print("Connected to PostgreSQL")
+  print(f"Version: {version.split(',')[0]}")
+
+except Exception as e:
+  print(f"Database connection failed: {e}")
+  exit(1)
