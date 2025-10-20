@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-import psycopg
+import psycopg2
 from kaggle.api.kaggle_api_extended import KaggleApi
 
 DATASET_NAME = os.getenv('KAGGLE_DATASET', 'jieyingwu/covid19-us-countylevel-summaries')
