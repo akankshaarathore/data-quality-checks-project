@@ -1,4 +1,5 @@
 import os
+import re
 import pandas as pd
 import psycopg2
 from kaggle.api.kaggle_api_extended import KaggleApi
@@ -103,3 +104,161 @@ try:
 except Exception as e:
   print(f"Database connection failed: {e}")
   exit(1)
+
+#Creation of Tables in PostgreSQL Database
+print("\nCreating Table")
+
+try:
+  cursor.execute("DROP TABLE IF EXISTS covid_counties CASCADE")
+  print("Dropped old table if it exists")
+
+  cleaned_columns = []
+  for col in df.columns:
+    clean_col = re.sub(r"[^a-z0-9_]", "",
+                col.lower().replace(' ','_')
+                  .replace('-','_')
+                  .replace('.','_')
+                  .replace('(','')
+                  .replace(')','')
+                  .replace('/','_')
+                  .replace('%','pct')
+                )
+    clean_col = re.sub(r'_+','_',clean_col).strip('_')
+
+    if len(clean_col) > 60:
+      clean_col = clean_col[:60]  
+
+    original_clean_col = clean_col
+    counter=1
+    while clean_col in cleaned_columns:
+      clean_col = f"{original_clean_col}_{counter}"
+      counter+=1
+
+    cleaned_columns.append(clean_col)
+              
+  df.columns = cleaned_columns
+  print(f"Cleaned {len(df.columns)} column names")
+
+  create_columns = []
+  for col in df.columns:
+    dtype = df[col].dtype
+
+    if dtype == 'int64':
+      sql_type = 'INTEGER'
+    elif dtype == 'float64':
+      sql_type = 'NUMERIC'
+    elif dtype == 'bool':
+      sql_type = 'BOOLEAN'
+    elif dtype == 'datetime64[ns]':
+      sql_type = 'TIMESTAMP'
+    else:
+      sql_type = 'TEXT'
+
+    create_columns.append(f"{col} {sql_type}")
+
+  create_table_sql = f"""
+    CREATE TABLE covid_counties (
+    id SERIAL PRIMARY KEY,
+    {', '.join(create_columns)},
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  """
+
+  cursor.execute(create_table_sql)
+  conn.commit()
+  print("Table 'covid_counties' created successfully")
+
+except Exception as e:
+  print(f"Error creating Table: {e}")
+  conn.rollback()
+  conn.close()
+  exit(1)
+
+#Insert Data in Tables
+print("\n Inserting data into PostgreSQL")
+
+try:
+  total_rows = len(df)
+  batch_size = 500
+  inserted = 0
+
+  columns = ', '.join(df.columns)
+  placeholders = ', '.join(['%s'] * len(df.columns))
+  insert_sql = f"INSERT INTO covid_counties ({columns}) VALUES ({placeholders})"
+
+  print(f"Inserting {total_rows:,} rows in batches of {batch_size}")
+
+  for index, row in df.iterrows():
+    row_data = tuple(None if pd.isna(val) else val for val in row)
+    cursor.execute(insert_sql, row_data)
+    inserted+=1
+
+    if inserted % batch_size == 0:
+      conn.commit()
+      percentage = (inserted / total_rows) * 100
+      print(f"Progress: {inserted:,}/{total_rows:,} rows ({percentage:.1f}%)")
+
+  conn.commit()
+  print(f"Successfully inserted all {total_rows:,} rows")
+
+except Exception as e:
+  print(f"Error inserting data: {e}")
+  conn. rollback()
+  conn.close()
+  exit(1)
+
+#Verifying Inserted Data
+print("\n Verifying data in database")
+
+try:
+  cursor.execute("SELECT COUNT(*) FROM covid_counties")
+  count = cursor.fetchone()[0]
+  print("Verification successful")
+  print(f"Total rows in database: {count:,}")
+
+  cursor.execute("""
+                 SELECT column_name, data_type
+                 FROM information_schema.columns
+                 WHERE table_name = 'covid_counties'
+                 LIMIT 5
+                 """)
+  print(f"\n Database schema (first 5 columns): ")
+  for col_name, data_type in cursor.fetchall():
+    print(f" {col_name} : {data_type}")
+
+  cursor.execute("SELECT * FROM covid_counties LIMIT 5")
+  print("\n Sample data: ")
+  sample_rows = cursor.fetchall()
+  for i, row in enumerate(sample_rows, 1):
+    print(f" Row {i}: {row[1:6]}")
+
+  cursor.execute("SELECT MIN(id), MAX(id) FROM covid_counties")
+  min_id, max_id = cursor.fetchone()
+  print(f"\n Record IDs range: {min_id} to {max_id}")
+
+except Exception as e:
+  print(f"Error Verifying data: {e}")
+  exit(1)
+
+#Cleanup
+print("\n Cleaning up")
+
+try:
+  cursor.close()
+  conn.close()
+  print("Database connections closed")
+
+  if os.path.exists(FILE_NAME):
+    os.remove(FILE_NAME)
+    print(f"Removed temporary file: {FILE_NAME}")
+
+except Exception as e:
+  print(f"Cleanup warning: {e}")
+  exit(1)
+
+#Summary
+print("Data Ingestion Pipeline Completed")
+print(f"\n Dataset: {DATASET_NAME}")
+print("Table: covid_counties")
+print(f"Total records: {total_rows:,}")
+print("Status: Success")
