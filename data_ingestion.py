@@ -2,6 +2,7 @@ import os
 import re
 import pandas as pd
 import psycopg2
+from datetime import datetime
 from kaggle.api.kaggle_api_extended import KaggleApi
 
 DATASET_NAME = os.getenv('KAGGLE_DATASET', 'jieyingwu/covid19-us-countylevel-summaries')
@@ -105,13 +106,10 @@ except Exception as e:
   print(f"Database connection failed: {e}")
   exit(1)
 
-#Creation of Tables in PostgreSQL Database
+#Clean Column Names
 print("\nCreating Table")
 
 try:
-  cursor.execute("DROP TABLE IF EXISTS covid_counties CASCADE")
-  print("Dropped old table if it exists")
-
   cleaned_columns = []
   for col in df.columns:
     clean_col = re.sub(r"[^a-z0-9_]", "",
@@ -139,34 +137,111 @@ try:
   df.columns = cleaned_columns
   print(f"Cleaned {len(df.columns)} column names")
 
-  create_columns = []
-  for col in df.columns:
-    dtype = df[col].dtype
+except Exception as e:
+    print(f"Error cleaning columns: {e}")
+    exit(1)
 
-    if dtype == 'int64':
-      sql_type = 'INTEGER'
-    elif dtype == 'float64':
-      sql_type = 'NUMERIC'
-    elif dtype == 'bool':
-      sql_type = 'BOOLEAN'
-    elif dtype == 'datetime64[ns]':
-      sql_type = 'TIMESTAMP'
+#Detecting Unique Indentifiers:
+print("Detecting a unique identifier column")
+total_rows = len(df)
+unique_col = None
+
+for col in df.columns:
+  if df[col].nunique() == total_rows and df[col].isnull().sum()==0:
+    unique_col = col
+    print(f"Unique identifier column: {col}")
+    break;
+  
+  if not unique_col:
+    print("No natural unique column found")
+    unique_col = 'inserted_timestamp'
+    df[unique_col] = pd.date_range(datetime.now(),  periods=len(df), freq='S')
+    print(f"Created unique column: '{unique_col}'")
+
+#Checking Table existence
+print("Checking if the table of the same name exists")
+try:
+  cursor.execute(""" SELECT EXISTS(
+               SELECT FROM information_schema.tables WHERE table_name = 'covid_counties'
+               )
+              """)
+  table_exists = cursor.fetchone()[0]
+
+  if table_exists:
+    print("Table exists- checking for schema changes")
+    cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'covid_counties'
+  """)
+    existing_cols = {row[0] for row in cursor.fetchall()}
+
+    new_cols = [col for col in df.columns if col not in existing_cols]
+
+    if new_cols:
+      for col in new_cols:
+        dtype = df[col].dtype
+
+        if dtype == 'int64':
+          sql_type = 'INTEGER'
+        elif dtype == 'float64':
+          sql_type = 'NUMERIC'
+        elif dtype == 'bool':
+          sql_type = 'BOOLEAN'
+        elif dtype == 'datetime64[ns]':
+          sql_type = 'TIMESTAMP'
+        else:
+          sql_type = 'TEXT'
+
+        cursor.execute(f"ALTER TABLE covid_counties ADD COLUMN IF NOT EXISTS {col} {sql_type}")
+        print(f"Added new column: {col} ({sql_type})")
+      conn.commit()
     else:
-      sql_type = 'TEXT'
+      print("No new columns to add")
+    
+    cursor.execute("""
+                   ALTER TABLE covid_counties
+                   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP""")
+    conn.commit()
 
-    create_columns.append(f"{col} {sql_type}")
+  else:
+    print("Table not found creating a new one")
+    create_columns = []
+    for col in df.columns:
+      dtype = df[col].dtype
 
-  create_table_sql = f"""
-    CREATE TABLE covid_counties (
-    id SERIAL PRIMARY KEY,
-    {', '.join(create_columns)},
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  """
+      if dtype == 'int64':
+        sql_type = 'INTEGER'
+      elif dtype == 'float64':
+        sql_type = 'NUMERIC'
+      elif dtype == 'bool':
+        sql_type = 'BOOLEAN'
+      elif dtype == 'datetime64[ns]':
+        sql_type = 'TIMESTAMP'
+      else:
+        sql_type = 'TEXT'
+      create_columns.append(f"{col} {sql_type}")
+    
+    create_table_sql = f"""
+      CREATE TABLE covid_counties (
+      id SERIAL PRIMARY KEY,
+      {', '.join(create_columns)},
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    """
 
-  cursor.execute(create_table_sql)
+    cursor.execute(create_table_sql)
+    conn.commit()
+    print("New table 'covid_counties' created")
+
+  cursor.execute(f""" 
+              CREATE UNIQUE INDEX IF NOT EXISTS idx_covid_{unique_col} ON covid_counties ({unique_col})""")
   conn.commit()
-  print("Table 'covid_counties' created successfully")
+  print(f"unique index exists on column: {unique_col}")
+
+  cursor.execute(f"""CREATE UNIQUE INDEX IF NOT EXISTS idx_covid_{unique_col} ON covid_counties ({unique_col})""")
+  conn.commit()
+  print(f"Table 'covid_counties' created successfully with unique index on: {unique_col}")
 
 except Exception as e:
   print(f"Error creating Table: {e}")
@@ -181,14 +256,20 @@ try:
   total_rows = len(df)
   batch_size = 500
   inserted = 0
+  updated = 0
 
-  columns = ', '.join(df.columns)
-  placeholders = ', '.join(['%s'] * len(df.columns))
-  insert_sql = f"INSERT INTO covid_counties ({columns}) VALUES ({placeholders})"
+  columns = df.columns.tolist()
+  columns_str = ', '.join(columns)
+  placeholders = ', '.join(['%s'] * len(columns))
 
+  update_set = ', '.join([f"{col} = EXCLUDED.{col}" for col in columns if col != unique_col])
+
+  insert_sql = f"""INSERT INTO covid_counties ({columns_str}) VALUES ({placeholders}) ON CONFLICT ({unique_col}) DO UPDATE SET {update_set}, updated_at = CURRENT_TIMESTAMP
+  """
+  print(f"Using ON CONFLICT on column: {unique_col}")
   print(f"Inserting {total_rows:,} rows in batches of {batch_size}")
 
-  for index, row in df.iterrows():
+  for index, row in enumerate(df.itertuples(index=False), start=1):
     row_data = tuple(None if pd.isna(val) else val for val in row)
     cursor.execute(insert_sql, row_data)
     inserted+=1
