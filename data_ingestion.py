@@ -107,7 +107,7 @@ except Exception as e:
   exit(1)
 
 #Clean Column Names
-print("\nCreating Table")
+print("\nPreparing the data schema")
 
 try:
   cleaned_columns = []
@@ -152,14 +152,14 @@ for col in df.columns:
     print(f"Unique identifier column: {col}")
     break;
   
-  if not unique_col:
-    print("No natural unique column found")
-    unique_col = 'inserted_timestamp'
-    df[unique_col] = pd.date_range(datetime.now(),  periods=len(df), freq='S')
-    print(f"Created unique column: '{unique_col}'")
+if not unique_col:
+  print("No natural unique column found")
+  unique_col = 'inserted_timestamp'
+  df[unique_col] = pd.date_range(datetime.now(),  periods=len(df), freq='S')
+  print(f"Created unique column: '{unique_col}'")
 
-#Checking Table existence
-print("Checking if the table of the same name exists")
+#Checking Table existence/Creating Table
+print("Checking Table Existence")
 try:
   cursor.execute(""" SELECT EXISTS(
                SELECT FROM information_schema.tables WHERE table_name = 'covid_counties'
@@ -239,12 +239,57 @@ try:
   conn.commit()
   print(f"unique index exists on column: {unique_col}")
 
-  cursor.execute(f"""CREATE UNIQUE INDEX IF NOT EXISTS idx_covid_{unique_col} ON covid_counties ({unique_col})""")
-  conn.commit()
-  print(f"Table 'covid_counties' created successfully with unique index on: {unique_col}")
-
 except Exception as e:
   print(f"Error creating Table: {e}")
+  conn.rollback()
+  conn.close()
+  exit(1)
+
+#Delta Detection:
+print("\n Performing Delta Detection")
+try:
+  if table_exists:
+    print("Fetching existing unique keys from database")
+    cursor.execute(f"SELECT {unique_col} FROM covid_counties")
+    existing_keys = {row[0] for row in cursor.fetchall()}
+    print(f"Found {len(existing_keys):,} existing rows in database")
+
+    print("Identifying new rows")
+    original_count = len(df)
+    df = df[~df[unique_col].isin(existing_keys)]
+    new_row_count = len(df)
+    skipped_count = original_count - new_row_count
+
+    print(f"Total rows: {original_count:,}")
+    print(f"Existing rows (skipped) : {skipped_count:,}")
+    print(f"New rows to insert: {new_row_count}")
+
+    if new_row_count == 0:
+      print("\n No new rows to insert")
+      cursor.execute("SELECT COUNT(*) FROM covid_counties")
+      count = cursor.fetchone()[0]
+      print(f"\nCurrent database status:")
+      print(f"  Total rows: {count:,}")
+
+     #Cleanup:
+      cursor.close()
+      conn.close()
+      print("\nDatabase connections closed")
+      
+      if os.path.exists(FILE_NAME):
+        os.remove(FILE_NAME)
+        print(f"Removed temporary file: {FILE_NAME}")
+      
+      print("\nData Ingestion Pipeline Completed")
+      print(f"Dataset: {DATASET_NAME}")
+      print("Table: covid_counties")
+      print("Status: Success (No change needed)")
+      exit(0)
+  else:
+    print("New Table with all rows to be inserted")
+
+except Exception as e:
+  print(f"Error during delta detection: {e}")
   conn.rollback()
   conn.close()
   exit(1)
@@ -256,22 +301,24 @@ try:
   total_rows = len(df)
   batch_size = 500
   inserted = 0
-  updated = 0
+  actually_inserted = 0
 
   columns = df.columns.tolist()
   columns_str = ', '.join(columns)
   placeholders = ', '.join(['%s'] * len(columns))
 
-  update_set = ', '.join([f"{col} = EXCLUDED.{col}" for col in columns if col != unique_col])
-
-  insert_sql = f"""INSERT INTO covid_counties ({columns_str}) VALUES ({placeholders}) ON CONFLICT ({unique_col}) DO UPDATE SET {update_set}, updated_at = CURRENT_TIMESTAMP
+  insert_sql = f"""INSERT INTO covid_counties ({columns_str}) VALUES ({placeholders}) ON CONFLICT ({unique_col}) DO NOTHING
   """
-  print(f"Using ON CONFLICT on column: {unique_col}")
+  print(f"Using ON CONFLICT DO NOTHING on column: {unique_col}")
   print(f"Inserting {total_rows:,} rows in batches of {batch_size}")
 
   for index, row in enumerate(df.itertuples(index=False), start=1):
     row_data = tuple(None if pd.isna(val) else val for val in row)
     cursor.execute(insert_sql, row_data)
+
+    if cursor.rowcount>0:
+      actually_inserted+=1
+    
     inserted+=1
 
     if inserted % batch_size == 0:
