@@ -8,6 +8,10 @@ from kaggle.api.kaggle_api_extended import KaggleApi
 DATASET_NAME = os.getenv('KAGGLE_DATASET', 'jieyingwu/covid19-us-countylevel-summaries')
 FILE_NAME = "counties.csv"
 
+#Testing file
+USE_TEST_FILE = os.getenv('USE_TEST_FILE', 'false').lower()=='true'
+TEST_FILE_PATH = os.getenv('TEST_FILE_PATH', 'counties_test.csv')
+
 #Database Configuration
 DB_CONFIG = {
   'host' : os.getenv('DB_HOST', 'localhost'),
@@ -19,34 +23,47 @@ DB_CONFIG = {
 
 print("covid-19 county data ingestion pipeline started")
 
-print("\n Downloading our dataset from Kaggle")
-print(f"Dataset: {DATASET_NAME}")
+#Modified download section
+if USE_TEST_FILE:
+  print("\n Using local test file")
+  print(f"Test file: {TEST_FILE_PATH}")
+
+  FILE_NAME = TEST_FILE_PATH
+  print(f"Using File: {FILE_NAME}")
+
+else:
+  print("\n Downloading our dataset from Kaggle")
+  print(f"Dataset: {DATASET_NAME}")
 
 #Kaggle API Initialization
-try:
-  api=KaggleApi()
-  api.authenticate()
-  print("Kaggle authentication successfull")
+  try:
+    api=KaggleApi()
+    api.authenticate()
+    print("Kaggle authentication successfull")
 
-  api.dataset_download_files(DATASET_NAME, path='.',unzip=True)
-  print("Downloaded and extracted dataset")
+    api.dataset_download_files(DATASET_NAME, path='data',unzip=True)
+    print("Downloaded and extracted dataset")
 
-  import glob
-  csv_files = glob.glob('*.csv')
-  print(f"Found CSV Files: {csv_files}")
+    import glob
+    csv_files = glob.glob('data/*.csv')
+    print(f"Found CSV Files: {csv_files}")
 
-  if csv_files:
-    FILE_NAME=csv_files[0];
-    print(f"Using file: {FILE_NAME}")
+    TARGET_FILE = "counties.csv"
 
-  else:
-    print("No CSV Files found in dataset")
+    matching_files = [f for f in csv_files if os.path.basename(f) == TARGET_FILE]
+
+    if matching_files:
+      FILE_NAME=matching_files[0];
+      print(f"Using file: {FILE_NAME}")
+
+    else:
+      print(f"{TARGET_FILE} not found in dataset")
+      exit(1)
+
+  except Exception as e:
+    print(f"Error downloading from Kaggle: {e}")
+    print("Make sure KAGGLE_USERNAME and KAGGLE KEY are set coorectly")
     exit(1)
-
-except Exception as e:
-  print(f"Error downloading from Kaggle: {e}")
-  print("Make sure KAGGLE_USERNAME and KAGGLE KEY are set coorectly")
-  exit(1)
 
 print("\n Reading CSV Files")
 
@@ -141,22 +158,9 @@ except Exception as e:
     print(f"Error cleaning columns: {e}")
     exit(1)
 
-#Detecting Unique Indentifiers:
-print("Detecting a unique identifier column")
-total_rows = len(df)
-unique_col = None
-
-for col in df.columns:
-  if df[col].nunique() == total_rows and df[col].isnull().sum()==0:
-    unique_col = col
-    print(f"Unique identifier column: {col}")
-    break;
-  
-if not unique_col:
-  print("No natural unique column found")
-  unique_col = 'inserted_timestamp'
-  df[unique_col] = pd.date_range(datetime.now(),  periods=len(df), freq='S')
-  print(f"Created unique column: '{unique_col}'")
+#Setting Unique Indentifiers:
+unique_col = 'fips'
+print(f"Using unique column: '{unique_col}'")
 
 #Checking Table existence/Creating Table
 print("Checking Table Existence")
