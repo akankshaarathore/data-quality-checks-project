@@ -380,9 +380,14 @@ try:
   conn.close()
   print("Database connections closed")
 
-  if os.path.exists(FILE_NAME):
-    os.remove(FILE_NAME)
-    print(f"Removed temporary file: {FILE_NAME}")
+  csv_path = os.path.join("data", FILE_NAME)
+  if os.path.exists(csv_path):
+    os.remove(csv_path)
+    print(f"Removed temporary file: {csv_path}")
+
+  for zip_file in glob.glob(os.path.join("data", "*.zip")):
+    os.remove(zip_file)
+    print(f"Removed leftover zip file: {zip_file}")
 
 except Exception as e:
   print(f"Cleanup warning: {e}")
