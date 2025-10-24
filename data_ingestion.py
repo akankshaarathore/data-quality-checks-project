@@ -41,7 +41,7 @@ else:
     api.authenticate()
     print("Kaggle authentication successfull")
 
-    api.dataset_download_files(DATASET_NAME, path='data',unzip=True)
+    api.dataset_download_files(DATASET_NAME, path=os.path.abspath('data'),unzip=True)
     print("Downloaded and extracted dataset")
 
     import glob
@@ -385,6 +385,7 @@ try:
     os.remove(csv_path)
     print(f"Removed temporary file: {csv_path}")
 
+  import glob
   for zip_file in glob.glob(os.path.join("data", "*.zip")):
     os.remove(zip_file)
     print(f"Removed leftover zip file: {zip_file}")
