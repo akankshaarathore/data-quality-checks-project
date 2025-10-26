@@ -169,7 +169,7 @@ for col_name, data_type in columns_info:
     })
         
   except Exception as e:
-    print(f"⚠️  Error scoring {col_name}: {e}")
+    print(f"Error scoring {col_name}: {e}")
 
 df_scored = pd.DataFrame(scored_columns)
 df_scored = df_scored.sort_values('score', ascending=False) #sort by score
