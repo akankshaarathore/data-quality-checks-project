@@ -107,18 +107,18 @@ for col_name, data_type in columns_info:
         
     col_lower = col_name.lower()
         
-    # Score 1: Domain Relevance (0-100 points)
+    # Score 1: Domain Relevance 
     for domain, config in ANALYTICAL_DOMAINS.items():
       if any(keyword in col_lower for keyword in config['keywords']):
         if config['required']:
-          score += 100  # Required domains get highest score
+          score += 100  
         else:
-          score += 50   # Optional but valuable domains
+          score += 50   
         matched_domain = domain
         relevance_reason.append(f"Matches {domain}")
         break
         
-    # Score 2: Data Quality (0-30 points)
+    # Score 2: Data Quality 
     if null_pct == 0:
       score += 30
       relevance_reason.append("Fully populated")
@@ -132,10 +132,10 @@ for col_name, data_type in columns_info:
       score += 5
       relevance_reason.append("Sparse but usable")
     else:
-      score -= 20  # Penalty for very sparse data
+      score -= 20  
       relevance_reason.append("Too sparse")
         
-    # Score 3: Analytical Value (0-20 points)
+    # Score 3: Analytical Value 
     if uniqueness_ratio > 0.99:
       score += 20  # Identifiers are critical
       relevance_reason.append("Unique identifier")
