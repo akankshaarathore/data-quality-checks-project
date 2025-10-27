@@ -202,6 +202,125 @@ for col in numeric_fields:
     execute_check(cursor, f"{col} must be non-negative", 
     f"SELECT COUNT(*) FROM covid_counties WHERE {col} IS NOT NULL AND {col} < 0", severity='HIGH')
 
+#Check4: Accuracy (Values should be reasonable and realistic)
+print("Data Quality Checks: Accuracy")
+
+if 'total_age65plus' in ALL_SELECTED_COLUMNS and 'pop_estimate_2018' in ALL_SELECTED_COLUMNS:
+  execute_check(cursor, "Age 65+ cannot exceed total population", """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE total_age65plus > pop_estimate_2018 
+    AND total_age65plus IS NOT NULL 
+    AND pop_estimate_2018 IS NOT NULL""",
+    severity='HIGH')
+
+if all(col in ALL_SELECTED_COLUMNS for col in ['male_age65plus', 'female_age65plus', 'total_age65plus']):
+  execute_check(cursor, "Male + Female age 65+ should not exceed Total age 65+", """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE (male_age65plus + female_age65plus) > total_age65plus * 1.01
+    AND male_age65plus IS NOT NULL 
+    AND female_age65plus IS NOT NULL 
+    AND total_age65plus IS NOT NULL""",
+    severity='MEDIUM')
+    
+if 'icu_beds' in ALL_SELECTED_COLUMNS and 'pop_estimate_2018' in ALL_SELECTED_COLUMNS:
+  execute_check(cursor, "ICU beds cannot exceed population",
+    """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE icu_beds > pop_estimate_2018 
+    AND icu_beds IS NOT NULL 
+    AND pop_estimate_2018 IS NOT NULL""",
+    severity='HIGH')
+
+if 'total_hospitals_2019' in ALL_SELECTED_COLUMNS:
+  execute_check(cursor, "Hospital count should be realistic (<1000 per county)",
+    "SELECT COUNT(*) FROM covid_counties WHERE total_hospitals_2019 > 1000",
+    severity='MEDIUM')
+  
+if 'unemployment_rate_2018' in ALL_SELECTED_COLUMNS:
+  execute_check(cursor, "Unemployment rate must be between 0-100%", """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE unemployment_rate_2018 IS NOT NULL 
+    AND (unemployment_rate_2018 < 0 OR unemployment_rate_2018 > 100)""",
+    severity='MEDIUM')
+  
+if 'pctpovall_2018' in ALL_SELECTED_COLUMNS:
+  execute_check(cursor, "Poverty rate must be between 0-100%", """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE pctpovall_2018 IS NOT NULL 
+    AND (pctpovall_2018 < 0 OR pctpovall_2018 > 100)""",
+    severity='MEDIUM')
+  
+fraction_cols = [col for col in ALL_SELECTED_COLUMNS if 'fraction_of_' in col]
+for col in fraction_cols:
+  execute_check(cursor, f"{col} must be between 0-1", 
+    f"""SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE {col} IS NOT NULL 
+    AND ({col} < 0 OR {col} > 1)""",
+    severity='MEDIUM')
+  
+if 'median_household_income_2018' in ALL_SELECTED_COLUMNS:
+  execute_check(cursor, "Median income should be realistic (>$10,000)", """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE median_household_income_2018 IS NOT NULL 
+    AND median_household_income_2018 < 10000""",
+    severity='MEDIUM')
+
+#Check5: Integrity - Relationships between fields should be valid
+print("Data Quality Checks: Integrity")
+if all(col in ALL_SELECTED_COLUMNS for col in ['male_age65plus', 'female_age65plus', 'total_age65plus']):
+  execute_check(cursor, "Male + Female age 65+ should equal Total age 65+ (±10)",
+    """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE male_age65plus IS NOT NULL 
+    AND female_age65plus IS NOT NULL 
+    AND total_age65plus IS NOT NULL
+    AND ABS((male_age65plus + female_age65plus) - total_age65plus) > 10""",
+    severity='MEDIUM')
+  
+if all(col in ALL_SELECTED_COLUMNS for col in ['total_age85plusr', 'total_age65plus']):
+  execute_check(cursor, "Age 85+ should be subset of Age 65+ population",
+    """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE total_age85plusr > total_age65plus 
+    AND total_age85plusr IS NOT NULL 
+    AND total_age65plus IS NOT NULL""",
+    severity='HIGH')
+  
+#Check6: Consistency - Related values should be logically consistent
+print("Data Quality Checks: Consistency")
+
+if all(col in ALL_SELECTED_COLUMNS for col in ['density_per_square_mile_of_land_area_population','pop_estimate_2018', 'area_in_square_miles_land_area']):
+  execute_check(cursor, "Population density consistent with pop/land area (±1)",
+    """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE pop_estimate_2018 IS NOT NULL 
+    AND area_in_square_miles_land_area IS NOT NULL 
+    AND area_in_square_miles_land_area > 0
+    AND density_per_square_mile_of_land_area_population IS NOT NULL
+    AND ABS(density_per_square_mile_of_land_area_population - 
+      (pop_estimate_2018::float /area_in_square_miles_land_area)) > 1""",
+    severity='LOW')
+
+#Check7: Validity - Values should be acceptable
+print("Data Quality Checks : Validity")
+
+if 'area_in_square_miles_land_area' in ALL_SELECTED_COLUMNS:
+  execute_check(cursor, "Land area must be positive", 
+    """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE area_in_square_miles_land_area IS NOT NULL 
+    AND area_in_square_miles_land_area <= 0""",
+    severity='HIGH')
+
+if 'median_household_income_2018' in ALL_SELECTED_COLUMNS:
+  execute_check(cursor, "Median income must be positive",
+    """SELECT COUNT(*) 
+    FROM covid_counties 
+    WHERE median_household_income_2018 IS NOT NULL 
+    AND median_household_income_2018 <= 0""",
+    severity='MEDIUM')
+
 print("Data Quality Check Summary")
 total_checks = len(dq_results['checks'])
 passed_checks = sum(1 for check in dq_results['checks'] if check['passed'])
@@ -213,5 +332,8 @@ print(f"Passed: {passed_checks} ({pass_rate:.1f}%)")
 print(f"Failed: {failed_checks} ({100-pass_rate:.1f}%)")
 
 df_results = pd.DataFrame(dq_results['checks'])
+visualisations_columns = ['check_name', 'status', 'severity', 'result_value', 'passed']
+df_visualisation = df_results[visualisations_columns]
+df_visualisation.to_csv('dq_results.csv',index=False)
 cursor.close()
 conn.close()
