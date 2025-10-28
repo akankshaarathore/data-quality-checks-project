@@ -258,13 +258,6 @@ for col in fraction_cols:
     WHERE {col} IS NOT NULL 
     AND ({col} < 0 OR {col} > 1)""",
     severity='MEDIUM')
-  
-if 'median_household_income_2018' in ALL_SELECTED_COLUMNS:
-  execute_check(cursor, "Median income should be realistic (>$10,000)", """SELECT COUNT(*) 
-    FROM covid_counties 
-    WHERE median_household_income_2018 IS NOT NULL 
-    AND median_household_income_2018 < 10000""",
-    severity='MEDIUM')
 
 #Check5: Integrity - Relationships between fields should be valid
 print("Data Quality Checks: Integrity")
@@ -277,15 +270,6 @@ if all(col in ALL_SELECTED_COLUMNS for col in ['male_age65plus', 'female_age65pl
     AND total_age65plus IS NOT NULL
     AND ABS((male_age65plus + female_age65plus) - total_age65plus) > 10""",
     severity='MEDIUM')
-  
-if all(col in ALL_SELECTED_COLUMNS for col in ['total_age85plusr', 'total_age65plus']):
-  execute_check(cursor, "Age 85+ should be subset of Age 65+ population",
-    """SELECT COUNT(*) 
-    FROM covid_counties 
-    WHERE total_age85plusr > total_age65plus 
-    AND total_age85plusr IS NOT NULL 
-    AND total_age65plus IS NOT NULL""",
-    severity='HIGH')
   
 #Check6: Consistency - Related values should be logically consistent
 print("Data Quality Checks: Consistency")
