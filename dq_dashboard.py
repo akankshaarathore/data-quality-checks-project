@@ -58,6 +58,12 @@ df = load_data()
 
 # Sidebar Filters
 st.sidebar.header("Filters")
+dq_check_filter = st.sidebar.multiselect(
+  "Data Quality Check Type",
+  options=sorted(df['dq_check'].unique()),
+  default=df['dq_check'].unique()
+)
+
 severity_filter = st.sidebar.multiselect(
   "Severity Level",
   options=df['severity'].unique(),
@@ -72,6 +78,7 @@ status_filter = st.sidebar.multiselect(
 
 # Apply Filters
 filtered_df = df[
+  (df['dq_check'].isin(dq_check_filter)) &
   (df['severity'].isin(severity_filter)) & 
   (df['status'].isin(status_filter))
 ]
@@ -93,7 +100,7 @@ col5.metric("High Severity Fails", high_severity_fails, delta_color="off")
 
 st.divider()
 
-# Row1: Overall Status and Severity Distribution
+# Row1: Overall Status and DQ Check Category Distribution
 st.header("Overall Status")
 row1_col1, row1_col2 = st.columns(2)
 
@@ -117,127 +124,193 @@ with row1_col1:
   st.plotly_chart(fig_status, use_container_width=True)
 
 with row1_col2:
-  st.subheader("Severity Distribution")
-  severity_counts = df['severity'].value_counts().reindex(['HIGH', 'MEDIUM', 'LOW'], fill_value=0)
-  fig_severity = px.bar(
-  x=severity_counts.index,
-  y=severity_counts.values,
-  color=severity_counts.index,
-  color_discrete_map={'HIGH': '#dc3545', 'MEDIUM': '#ffc107', 'LOW': '#17a2b8'},
-  labels={'x': 'Severity', 'y': 'Count'}
+  st.subheader("Category Distribution")
+  dq_check_stats = df.groupby('dq_check').agg({
+    'passed': ['sum', 'count']
+  }).reset_index()
+  dq_check_stats.columns = ['dq_check', 'passed_count', 'total_count']
+  dq_check_stats['pass_rate'] = (dq_check_stats['passed_count'] / dq_check_stats['total_count'] * 100).round(1)
+  dq_check_stats = dq_check_stats.sort_values('pass_rate', ascending=True
   )
-  fig_severity.update_layout(
+
+  fig_dq_performance = px.bar(
+    dq_check_stats,
+    x='pass_rate',
+    y='dq_check',
+    orientation='h',
+    text='pass_rate',
+    labels={'pass_rate': 'Pass Rate (%)', 'dq_check': 'DQ Check Type'},
+    color='pass_rate',
+    color_continuous_scale=['#dc3545', '#ffc107', '#28a745']
+  )
+
+  fig_dq_performance.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+  fig_dq_performance.update_layout(
     showlegend=False,
     height=350,
+    margin=dict(r=50),
     paper_bgcolor='#0e1117',
     plot_bgcolor='#0e1117',
     font=dict(color='#ffffff', size=14),
-    xaxis=dict(gridcolor='#4a4a4a', tickfont=dict(color='#ffffff', size=12), title_font=dict(color='#ffffff', size=14)),
-    yaxis=dict(gridcolor='#4a4a4a', tickfont=dict(color='#ffffff', size=12), title_font=dict(color='#ffffff', size=14))
+    xaxis=dict(gridcolor='#4a4a4a', tickfont=dict(color='#ffffff', size=12), title_font=dict(color='#ffffff', size=14), range=[0, 115]),
+    yaxis=dict(gridcolor='#4a4a4a', tickfont=dict(color='#ffffff', size=12), title_font=dict(color='#ffffff', size=14)),
+    coloraxis_showscale=False
   )
-  st.plotly_chart(fig_severity, use_container_width=True)
+  st.plotly_chart(fig_dq_performance, use_container_width=True)
 
 st.divider()
 
-# Row2: Failures by Severity
-st.header("Failed Check Analysis")
+# Row2: DQ Checks Category Breakdown
+st.header("Data Quality Check Category Analysis")
+st.subheader("Checks by Category")
+dq_check_breakdown = df.groupby(['dq_check', 'status']).size().reset_index(name='count')
+fig_breakdown = px.bar(
+  dq_check_breakdown,
+  x='dq_check',
+  y='count',
+  color='status',
+  color_discrete_map={'PASS': '#28a745', 'FAIL': '#dc3545', 'ERROR': '#ffc107'},
+  labels={'count': 'Number of Checks', 'dq_check': 'DQ Check Type'},
+  text='count',
+  barmode='group'
+)
+fig_breakdown.update_traces(textposition='outside')
+fig_breakdown.update_layout(
+  height=400,
+  paper_bgcolor='#0e1117',
+  plot_bgcolor='#0e1117',
+  font=dict(color='#ffffff', size=14),
+  xaxis=dict(gridcolor='#4a4a4a', tickfont=dict(color='#ffffff', size=12), title_font=dict(color='#ffffff', size=14)),
+  yaxis=dict(gridcolor='#4a4a4a', tickfont=dict(color='#ffffff', size=12), title_font=dict(color='#ffffff', size=14), range = [0, dq_check_breakdown['count'].max() * 1.15]),
+  legend=dict(font=dict(color='#ffffff', size=13), bgcolor='#0e1117', title_font=dict(color='#ffffff'))
+)
+st.plotly_chart(fig_breakdown, use_container_width=True)
+
+st.markdown("### Category-wise Performance Summary")
+summary_cols = st.columns(4)
+categories = sorted(df['dq_check'].unique())
+for idx, category in enumerate(categories):
+  with summary_cols[idx % 4]:
+    cat_data = df[df['dq_check'] == category]
+    cat_passed = len(cat_data[cat_data['passed'] == True])
+    cat_total = len(cat_data)
+    cat_pass_rate = (cat_passed / cat_total * 100) if cat_total > 0 else 0
+    color = '🟢' if cat_pass_rate >= 80 else '🟡' if cat_pass_rate >= 50 else '🔴'
+    st.metric(
+      label=f"{color} {category}",
+      value=f"{cat_passed}/{cat_total}",
+      delta=f"{cat_pass_rate:.1f}%"
+    )
+
+st.divider()
+
+# Row3: Failed Checks Analysis by Category
+st.header("Failed Checks Analysis by Category")
 failed_df = df[df['passed'] == False]
 
 if len(failed_df) > 0:
-  row2_col1, row2_col2 = st.columns([2.5, 1])
-  with row2_col1:
-    st.subheader("Failed Checks by Severity")
-    severity_order = ['HIGH', 'MEDIUM', 'LOW']
-    failed_by_severity = failed_df.groupby('severity').size().reindex(severity_order, fill_value=0)
-    fig_fails = px.bar(
-      x=failed_by_severity.index,
-      y=failed_by_severity.values,
-      color=failed_by_severity.index,
+  row3_col1, row3_col2 = st.columns([2.5, 1])
+  
+  with row3_col1:
+    st.subheader("Failed Checks by Category and Severity")
+    failed_by_category_severity = failed_df.groupby(['dq_check', 'severity']).size().reset_index(name='count')
+    
+    fig_failed_cat = px.bar(
+      failed_by_category_severity,
+      x='dq_check',
+      y='count',
+      color='severity',
       color_discrete_map={'HIGH': '#dc3545', 'MEDIUM': '#ffc107', 'LOW': '#17a2b8'},
-      labels={'x': 'Severity', 'y': 'Number of Failed Checks'},
-      text=failed_by_severity.values
+      labels={'count': 'Number of Failed Checks', 'dq_check': 'DQ Check Type'},
+      text='count',
+      barmode='stack'
     )
-    fig_fails.update_traces(textposition='outside', textfont=dict(size=14))
-    fig_fails.update_layout(
-      showlegend=False,
-      height=420,
+    fig_failed_cat.update_traces(textposition='inside')
+    fig_failed_cat.update_layout(
+      height=450,
       paper_bgcolor='#0e1117',
       plot_bgcolor='#0e1117',
       font=dict(color='#ffffff', size=14),
       xaxis=dict(gridcolor='#4a4a4a', tickfont=dict(color='#ffffff', size=12), title_font=dict(color='#ffffff', size=14)),
-      yaxis=dict(gridcolor='#4a4a4a', range=[0, failed_by_severity.max() * 1.15], tickfont=dict(color='#ffffff', size=12), title_font=dict(color='#ffffff', size=14))
+      yaxis=dict(gridcolor='#4a4a4a', tickfont=dict(color='#ffffff', size=12), title_font=dict(color='#ffffff', size=14)),
+      legend=dict(font=dict(color='#ffffff', size=13), bgcolor='#0e1117', title_font=dict(color='#ffffff'))
     )
-    st.plotly_chart(fig_fails, use_container_width=True)
+    st.plotly_chart(fig_failed_cat, use_container_width=True)
 
-  with row2_col2:
+  with row3_col2:
     st.subheader("Failure Summary")
     st.markdown("""
     <style>
+      .summary-container {
+        height: 450px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-evenly;
+      }
       .compact-metric {
         background-color: #1e2130;
         padding: 12px;
         border-radius: 6px;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
       }
       .compact-metric .label {
-        font-size: 13px;
+        font-size: 12px;
         color: #aaaaaa;
-        margin-bottom: 4px;
+        margin-bottom: 3px;
       }
       .compact-metric .value {
-        font-size: 28px;
+        font-size: 24px;
         font-weight: 600;
         color: #ffffff;
       }
-      </style>
-      """, unsafe_allow_html=True)
-        
+    </style>
+    """, unsafe_allow_html=True)
+    
     st.markdown(f"""
-      <div class="compact-metric">
-        <div class="label">Total Failures</div>
-        <div class="value">{len(failed_df)}</div>
-      </div>
-      <div class="compact-metric">
-        <div class="label">HIGH Severity</div>
-        <div class="value">{len(failed_df[failed_df['severity'] == 'HIGH'])}</div>
-      </div>
-      <div class="compact-metric">
-        <div class="label">MEDIUM Severity</div>
-        <div class="value">{len(failed_df[failed_df['severity'] == 'MEDIUM'])}</div>
-      </div>
-      <div class="compact-metric">
-        <div class="label">LOW Severity</div>
-        <div class="value">{len(failed_df[failed_df['severity'] == 'LOW'])}</div>
-      </div>
-      """, unsafe_allow_html=True)
-        
+    <div class="compact-metric">
+      <div class="label">Total Failures</div>
+      <div class="value">{len(failed_df)}</div>
+    </div>
+    <div class="compact-metric">
+      <div class="label">HIGH Severity</div>
+      <div class="value">{len(failed_df[failed_df['severity'] == 'HIGH'])}</div>
+    </div>
+    <div class="compact-metric">
+      <div class="label">MEDIUM Severity</div>
+      <div class="value">{len(failed_df[failed_df['severity'] == 'MEDIUM'])}</div>
+    </div>
+    <div class="compact-metric">
+      <div class="label">LOW Severity</div>
+      <div class="value">{len(failed_df[failed_df['severity'] == 'LOW'])}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
     total_issues = failed_df['result_value'].sum()
     st.markdown(f"""
-      <div class="compact-metric">
-        <div class="label">Total Records Affected</div>
-        <div class="value">{int(total_issues):,}</div>
-      </div>
-      """, unsafe_allow_html=True)
+    <div class="compact-metric">
+      <div class="label">Total Records Affected</div>
+      <div class="value">{int(total_issues):,}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 else:
   st.success("No failed checks!")
 
 st.divider()
 
-# Row3: Top Issues
+# Row4: Top Issues
 st.header("Top Data Quality Issues")
 
 if len(failed_df) > 0:
-  top_issues = failed_df.nlargest(10, 'result_value')[['check_name', 'severity', 'result_value']]
+  top_issues = failed_df.nlargest(10, 'result_value')[['check_name', 'dq_check' ,'severity', 'result_value']]
 
   fig_top = px.bar(
     top_issues,
     x='result_value',
     y='check_name',
-    color='severity',
-    color_discrete_map={'HIGH': '#dc3545', 'MEDIUM': '#ffc107', 'LOW': '#17a2b8'},
+    color='dq_check',
+    labels={'result_value': 'Number of Records Affected', 'check_name': 'Check Name', 'dq_check': 'Category'},
     orientation='h',
-    labels={'result_value': 'Number of Records Affected', 'check_name': 'Check Name'},
     text='result_value'
   )
   fig_top.update_traces(textposition='outside')
@@ -248,7 +321,7 @@ if len(failed_df) > 0:
     font=dict(color='#ffffff', size=14),
     xaxis=dict(gridcolor='#4a4a4a', tickfont=dict(color='#ffffff', size=12), title_font=dict(color='#ffffff', size=14)),
     yaxis=dict(categoryorder='total ascending', gridcolor='#4a4a4a', tickfont=dict(color='#ffffff', size=11), title_font=dict(color='#ffffff', size=14)),
-    legend=dict(font=dict(color='#ffffff', size=13), bgcolor='#0e1117')
+    legend=dict(font=dict(color='#ffffff', size=13), bgcolor='#0e1117', title_text='Category')
   )
   st.plotly_chart(fig_top, use_container_width=True)
 else:
@@ -266,8 +339,9 @@ if search_term:
 else:
   display_df = filtered_df
 
-display_df_formatted = display_df.copy()
-display_df_formatted['passed'] = display_df_formatted['passed'].map({True: '🟢', False: '🔴'})
+display_columns = ['check_name', 'dq_check', 'status', 'severity', 'result_value', 'passed']
+display_df_show = display_df[display_columns].copy()
+display_df_show['passed'] = display_df_show['passed'].map({True: '🟢', False: '🔴'})
 
 # Color coding function
 def highlight_status(row):
@@ -282,7 +356,7 @@ def highlight_status(row):
     return ['color: #ffffff'] * len(row)
 
 st.dataframe(
-  display_df_formatted.style.apply(highlight_status, axis=1),
+  display_df_show.style.apply(highlight_status, axis=1),
   use_container_width=True,
   height=400
 )
@@ -298,7 +372,7 @@ st.download_button(
 st.divider()
 
 #Summary
-st.markdown('<p class="section-header">Summary</p>', unsafe_allow_html=True)
+st.markdown("### Conclusion")
 
 if high_severity_fails > 0:
   st.error(f"**URGENT**: {high_severity_fails} high-severity checks failed. These should be addressed immediately as they impact critical data fields.")
@@ -306,3 +380,4 @@ if high_severity_fails > 0:
 medium_severity_fails = len(df[(df['severity'] == 'MEDIUM') & (df['passed'] == False)])
 if medium_severity_fails > 0:
   st.warning(f"**ATTENTION**: {medium_severity_fails} medium-severity checks failed. Review and address these issues to improve data quality.")
+
