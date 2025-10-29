@@ -21,7 +21,14 @@ st.markdown("""
   .stTextInput input {background-color: #1e2130; color: #fff; border: 1px solid #4a4a4a;}
   .stTextInput input::placeholder {color: #888;}   
   .stMultiSelect, .stMultiSelect [data-baseweb="select"] {background-color: #1e2130;}
-  .stMultiSelect [data-baseweb="tag"] {background-color: #2d3748; color: #fff;}   
+  .stMultiSelect [data-baseweb="tag"] {background-color: #2d3748; color: #fff;} 
+  [data-baseweb="popover"] {background-color: #1e2130 !important;}
+  [data-baseweb="menu"] {background-color: #1e2130 !important;}
+  [role="listbox"] {background-color: #1e2130 !important;}
+  [role="option"] {background-color: #1e2130 !important; color: #fff !important;}
+  [role="option"]:hover {background-color: #2d3748 !important; color: #fff !important;}
+  [data-baseweb="menu"] li {background-color: #1e2130 !important; color: #fff !important;}
+  [data-baseweb="menu"] li:hover {background-color: #2d3748 !important;}  
   .stDataFrame, [data-testid="stDataFrame"] {background-color: #1e2130; color: #fff;}
   [data-testid="stDataFrame"] button {background-color: #2d3748 !important; color: #fff !important; border: 1px solid #4a4a4a !important;}
   [data-testid="stDataFrame"] button:hover {background-color: #3d4758 !important;}
@@ -260,7 +267,7 @@ else:
   display_df = filtered_df
 
 display_df_formatted = display_df.copy()
-display_df_formatted['passed'] = display_df_formatted['passed'].map({True: '✅', False: '❌'})
+display_df_formatted['passed'] = display_df_formatted['passed'].map({True: '🟢', False: '🔴'})
 
 # Color coding function
 def highlight_status(row):
@@ -282,7 +289,7 @@ st.dataframe(
 
 # Download Button
 st.download_button(
-  label="📥 Download Full Results as CSV",
+  label=" Download Full Results as CSV",
   data=df.to_csv(index=False).encode('utf-8'),
   file_name='dq_results_export.csv',
   mime='text/csv',
