@@ -20,8 +20,40 @@ def create_cleaned_table():
     )
   """)
   table_exists = cursor.fetchone()[0]
-  if table_exists: #deleting rows removed from source
+  if table_exists:
     print("Table covid_counties_cleaned already exists\n")
+
+    cursor.execute("""
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'covid_counties'
+      AND column_name NOT IN (
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'covid_counties_cleaned'
+      )
+    """)
+    new_columns = cursor.fetchall()
+    if new_columns:
+      for col in new_columns:
+        col_name = col[0]
+        cursor.execute(f"""
+          SELECT data_type 
+          FROM information_schema.columns 
+          WHERE table_name = 'covid_counties' 
+          AND column_name = '{col_name}'
+        """)
+        col_type = cursor.fetchone()[0]
+
+        cursor.execute(f"""
+          ALTER TABLE covid_counties_cleaned 
+          ADD COLUMN IF NOT EXISTS {col_name} {col_type}
+        """)
+        print(f"Added column: {col_name} ({col_type})")
+      
+      conn.commit()
+
+     #deleting rows removed from source
     cursor.execute("""   
       DELETE FROM covid_counties_cleaned
       WHERE fips NOT IN (SELECT fips FROM covid_counties WHERE fips IS NOT NULL)
@@ -32,8 +64,18 @@ def create_cleaned_table():
       print(f" Deleted {deleted_count} rows removed from source")
     #insert new rows from source
     cursor.execute("""
-      INSERT INTO covid_counties_cleaned
-      SELECT src.*
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'covid_counties'
+      ORDER BY ordinal_position
+    """)
+    common_columns = [row[0] for row in cursor.fetchall()]
+    columns_str = ', '.join([f'src.{col}' for col in common_columns])
+    columns_list = ', '.join(common_columns)
+
+    cursor.execute(f"""
+      INSERT INTO covid_counties_cleaned ({columns_list}, is_cleaned)
+      SELECT {columns_str}, FALSE
       FROM covid_counties src
       LEFT JOIN covid_counties_cleaned cln ON src.fips = cln.fips
       WHERE cln.fips IS NULL AND src.fips IS NOT NULL
