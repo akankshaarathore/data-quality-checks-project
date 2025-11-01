@@ -60,6 +60,7 @@ def create_cleaned_table():
       AND fips IS NOT NULL
     """)
     deleted_count = cursor.rowcount
+    conn.commit();
     if deleted_count > 0:
       print(f" Deleted {deleted_count} rows removed from source")
     #insert new rows from source
