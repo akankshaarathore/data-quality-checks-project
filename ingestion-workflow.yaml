@@ -1,0 +1,83 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: covid-ingestion-pipeline-
+  namespace: argo
+spec:
+  serviceAccountName: argo-workflow
+  podGC:
+    strategy: OnWorkflowSuccess
+    deleteDelayDuration: "5m"
+  entrypoint: ingestion-pipeline
+
+  volumeClaimTemplates:
+    - metadata:
+        name: workdir
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+
+  templates:
+    - name: ingestion-pipeline
+      steps:
+        - - name: split-csv
+            template: split-csv-step
+
+        - - name: ingest-data
+            template: ingest-data-step
+
+    - name: split-csv-step
+      container:
+        image: covid-ingestion-pipeline:v1
+        imagePullPolicy: Never
+        command: [sh, -c]
+        args:
+          - |
+            mkdir -p /work/data && 
+            cp -r /app/data/* /work/data/ && 
+            cd /work && 
+            python /app/split_csv.py
+        volumeMounts:
+          - name: workdir
+            mountPath: /work
+
+    - name: ingest-data-step
+      container:
+        image: covid-ingestion-pipeline:v1
+        imagePullPolicy: Never
+        command: [sh, -c]
+        args:
+          - |
+            cd /work && 
+            python /app/data_ingestion_2.py
+        env:
+          - name: DB_HOST
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_HOST
+          - name: DB_PORT
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_PORT
+          - name: DB_NAME
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_NAME
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_USER
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_PASSWORD
+        volumeMounts:
+          - name: workdir
+            mountPath: /work
