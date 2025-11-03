@@ -24,15 +24,15 @@ def split_csv_by_date(input_file, output_dir, start_date='2025-10-26', days_to_s
       end_idx = (day+1) * rows_per_file
 
     batch = df.iloc[start_idx:end_idx].copy()
-    batch.insert(0,'data_date', date_str) #adding the date col
+    batch.insert(0,'input_date', date_str) #adding the date col
     output_file = os.path.join(output_dir, f'counties_{date_str}.csv')
     batch.to_csv(output_file, index=False)
 
     print(f"Created: {output_file}\n")
     print(f"Date: {date_str}\n")
     print(f"Rows: {len(batch):,}\n")
-    print(f"File split into {days_to_split} files\n")
-    print(f"Files saved in {output_dir}\n")
+  print(f"File split into {days_to_split} files\n")
+  print(f"Files saved in {output_dir}\n")
 
 if __name__ == "__main__":
   input_file = 'data/counties.csv'
