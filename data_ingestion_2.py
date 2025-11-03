@@ -1,9 +1,21 @@
 import os
 import re
+import sys
 import pandas as pd
 import psycopg2
 import glob
 from datetime import datetime
+
+if len(sys.argv) < 2:
+  print("Usage: python script.py YYYY-MM-DD")
+  exit(1)
+
+input_date = sys.argv[1]
+try:
+  date_obj = datetime.strptime(input_date, '%Y-%m-%d').date()
+except ValueError:
+  print(f"Invalid date format: {input_date}")
+  exit(1)
 
 DB_CONFIG = {
   'host': os.getenv('DB_HOST', 'localhost'),
@@ -13,10 +25,10 @@ DB_CONFIG = {
   'password': os.getenv('DB_PASSWORD', 'Qazokn@123')
 }
 
-SPLIT_FILES_PATH = "data/split_files/counties_*.csv"
+SPLIT_FILES_PATH = f"data/split_files/counties_{input_date}.csv"
 UNIQUE_COL = 'fips'
 
-print("Ingestion Pipeline Started")
+print(f"Ingestion Pipeline Started for date: {input_date}")
 
 print("Connecting to PostgreSQL")
 try:
@@ -30,30 +42,26 @@ except Exception as e:
   print(f"Database Connection Failed: {e}")
   exit(1)
 
-print("Scanning for CSV Files\n")
-csv_files = sorted(glob.glob(SPLIT_FILES_PATH))
-if not csv_files:
-  print(f"No CSV files found at: {SPLIT_FILES_PATH}")
+print(f"Looking for CSV file: {SPLIT_FILES_PATH}")
+if not os.path.exists(SPLIT_FILES_PATH):
+  print(f"Error: file not found at: {SPLIT_FILES_PATH}")
   cursor.close()
   conn.close()
   exit(1)
-print(f"Found {len(csv_files)} CSV Files:")
-for f in csv_files:
-  print(f"{os.path.basename(f)}")
+
+csv_files = [SPLIT_FILES_PATH]
+print(f"Found file: {os.path.basename(SPLIT_FILES_PATH)}")
 
 print("\nExtracting dates from filenames\n")
 file_dates = {}
-for file_path in csv_files:
-  try:
-    base = os.path.basename(file_path)
-    date_str = base.replace('counties_', '').replace('.csv', '')
-    date = pd.to_datetime(date_str).date()
-    file_dates[file_path] = date
-    print(f"{os.path.basename(file_path)} -> {date}")
-  except:
-    print(f"Could not extract date from {os.path.basename(file_path)}")
-if not file_dates:
-  print("No valid dates found in filenames")
+try:
+  base = os.path.basename(SPLIT_FILES_PATH)
+  date_str = base.replace('counties_', '').replace('.csv', '')
+  date = pd.to_datetime(date_str).date()
+  file_dates[SPLIT_FILES_PATH] = date
+  print(f"{os.path.basename(SPLIT_FILES_PATH)} -> {date}")
+except:
+  print(f"Could not extract date from {os.path.basename(SPLIT_FILES_PATH)}")
   cursor.close()
   conn.close()
   exit(1)
@@ -69,36 +77,22 @@ table_exists = cursor.fetchone()[0]
 if table_exists:
   print("Table 'covid_counties_2' exists\n")  
   print("Checking already ingested data\n")
-  cursor.execute("SELECT DISTINCT data_date FROM covid_counties_2 ORDER BY data_date")
+  cursor.execute("SELECT DISTINCT input_date FROM covid_counties_2 ORDER BY input_date")
   ingested_dates = [pd.to_datetime(row[0]).date() if isinstance(row[0], str) else row[0] for row in cursor.fetchall()]
   
   if ingested_dates:
     print(f"Found {len(ingested_dates)} already ingested dates:")
     for date in ingested_dates:
       print(f"{date}")  
-    pending_dates = [date for date in file_dates.values() if date not in ingested_dates]
     
-    if not pending_dates:
-      print("\nAll files already ingested\n")
-      cursor.execute("SELECT COUNT(*) FROM covid_counties_2")
-      total_rows = cursor.fetchone()[0]
-      cursor.execute(f"SELECT COUNT(DISTINCT {UNIQUE_COL}) FROM covid_counties_2")
-      distinct_fips = cursor.fetchone()[0]      
-      print(f"Total rows: {total_rows:,}")
-      print(f"Unique fips: {distinct_fips:,}")      
-      cursor.close()
-      conn.close()
-      print("\nDatabase connection closed")
-      print("Pipeline Completed")
-      exit(0)
+    if date_obj in ingested_dates:
+      print(f"Warning: Date {date_obj} is already ingested")
+      print("The pipeline will skip duplicate FIPS codes but may add new counties\n")
     else:
-      print(f"\nFound {len(pending_dates)} new dates to process:")
-      for date in pending_dates:
-        print(f"{date}")
-      csv_files = [f for f, d in file_dates.items() if d in pending_dates]
+      print(f"\nDate {date_obj} is new and will be ingested\n")
   else:
-    print("No data ingested yet\n")
-    ingested_dates = []
+      print("No data ingested yet\n")
+      ingested_dates = []
 else:
   print("Table 'covid_counties_2' does not exist\n")
   ingested_dates = []
@@ -237,23 +231,20 @@ for file_path in csv_files:
 
     df.columns = cleaned_columns    
 
-    if 'data_date' not in df.columns:
-      print(f"Error: 'data_date' column not found - skipping file\n")
-      total_files_skipped += 1
-      continue
+    if 'input_date' not in df.columns:
+      print(f"Error: 'input_date' column not found - skipping file\n")
+      cursor.close()
+      conn.close()
+      exit(1)
     
-    file_data_date = pd.to_datetime(df['data_date'].iloc[0]).date()
+    file_data_date = pd.to_datetime(df['input_date'].iloc[0]).date()
     print(f"Data date: {file_data_date}\n")
-    
-    if file_data_date in ingested_dates:
-      print(f"Skipped - This date is already fully ingested\n")
-      total_files_skipped += 1
-      continue
     
     if UNIQUE_COL not in df.columns:
       print(f"Error: '{UNIQUE_COL}' column not found - skipping file\n")
-      total_files_skipped += 1
-      continue
+      cursor.close()
+      conn.close()
+      exit(1)
     
     original_count = len(df)
     df_new = df[~df[UNIQUE_COL].isin(existing_fips)]
@@ -266,8 +257,12 @@ for file_path in csv_files:
     
     if new_row_count == 0:
       print(f"No new rows to insert from this file\n")
-      total_files_skipped += 1
-      continue
+      print(f"All {original_count:,} FIPS codes already exist in database\n")
+      cursor.close()
+      conn.close()
+      print("Database connection closed")
+      print("Pipeline Completed")
+      exit(0)
     
     print(f"Inserting {new_row_count:,} rows\n")    
     columns = df_new.columns.tolist()
@@ -296,21 +291,13 @@ for file_path in csv_files:
     
     conn.commit()
     print(f"Successfully inserted {inserted_count:,} rows\n")
-    
-    total_files_processed += 1
+
     total_rows_inserted += inserted_count
-    ingested_dates.append(file_data_date)
-    
-    new_fips_from_file = set(df_new[UNIQUE_COL].dropna())
-    existing_fips.update(new_fips_from_file)
     
   except Exception as e:
     print(f"Error processing file: {e}\n")
     conn.rollback()
     continue
-
-print(f"\nFiles processed: {total_files_processed}")
-print(f"Files skipped: {total_files_skipped}")
 print(f"Rows inserted: {total_rows_inserted:,}")
 print(f"Rows skipped (duplicates): {total_rows_skipped:,}\n")
 
