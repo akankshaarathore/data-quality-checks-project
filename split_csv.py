@@ -35,8 +35,8 @@ def split_csv_by_date(input_file, output_dir, start_date='2025-10-26', days_to_s
   print(f"Files saved in {output_dir}\n")
 
 if __name__ == "__main__":
-  input_file = 'data/counties.csv'
-  output_dir = 'data/split_files'
+  input_file = '/mnt/dq_persistent/data/counties.csv'
+  output_dir = '/mnt/dq_persistent/data/split_files'
   start_date = '2025-10-26'
   days = 3
 
