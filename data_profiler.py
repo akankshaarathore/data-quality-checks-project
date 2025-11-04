@@ -68,15 +68,15 @@ print(" Data Profiler for COVID-19 NPI Analysis")
 conn = psycopg2.connect(**DB_CONFIG)
 cursor = conn.cursor()
 
-cursor.execute("SELECT COUNT(*) FROM covid_counties")
+cursor.execute("SELECT COUNT(*) FROM covid_counties_2")
 total_rows = cursor.fetchone()[0]
 print(f"\nTotal records: {total_rows:,}")
 
 cursor.execute("""
     SELECT column_name, data_type
     FROM information_schema.columns 
-    WHERE table_name = 'covid_counties'
-    AND column_name NOT IN ('id', 'created_at', 'updated_at')
+    WHERE table_name = 'covid_counties_2'
+    AND column_name NOT IN ('id', 'input_date')
     ORDER BY ordinal_position
 """)
 columns_info = cursor.fetchall()
@@ -94,7 +94,7 @@ for col_name, data_type in columns_info:
         COUNT(*) - COUNT({col_name}) as null_count,
         ROUND(((COUNT(*) - COUNT({col_name}))::numeric / COUNT(*)) * 100, 2) as null_pct,
         COUNT(DISTINCT {col_name}) as unique_count
-        FROM covid_counties
+        FROM covid_counties_2
     """)
     null_count, null_pct, unique_count = cursor.fetchone()
     null_pct = float(null_pct) if null_pct else 0
@@ -220,7 +220,11 @@ for domain, config in ANALYTICAL_DOMAINS.items():
 selected_col_names = [col['column_name'] for col in selected_columns]
 
 # Save as Python list for DQ script
-with open('selected_columns_for_dq.txt', 'w') as f:
+output_dir = "/mnt/dq_persistent"
+os.makedirs(output_dir, exist_ok=True)
+output_path = os.path.join(output_dir, "selected_columns_for_dq.txt")
+
+with open(output_path, 'w') as f:
   f.write("# Auto-selected columns for COVID-19 NPI Data Quality Checks\n")
   f.write(f"# Generated: {pd.Timestamp.now()}\n")
   f.write(f"# Total selected: {len(selected_col_names)} out of 348\n\n")
@@ -233,7 +237,7 @@ with open('selected_columns_for_dq.txt', 'w') as f:
   for domain, count in domain_counts.items():
     f.write(f"# {domain}: {count} columns\n")
 
-print(f"\n Selected columns saved to: selected_columns_for_dq.txt")
+print(f"\n Selected columns saved to: {output_path}")
 
 print("Data Profiling Completed")
 
