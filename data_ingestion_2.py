@@ -25,7 +25,7 @@ DB_CONFIG = {
   'password': os.getenv('DB_PASSWORD', 'Qazokn@123')
 }
 
-SPLIT_FILES_PATH = f"data/split_files/counties_{input_date}.csv"
+SPLIT_FILES_PATH = f"/mnt/dq_persistent/data/split_files/counties_{input_date}.csv"
 UNIQUE_COL = 'fips'
 
 print(f"Ingestion Pipeline Started for date: {input_date}")
