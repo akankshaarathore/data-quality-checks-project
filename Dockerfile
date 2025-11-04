@@ -9,10 +9,6 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
-
-COPY split_csv.py .
-COPY data_ingestion_2.py .
-
-COPY data/ ./data/
+RUN pip install streamlit plotly
 
 CMD ["python", "--version"]
