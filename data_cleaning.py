@@ -26,7 +26,7 @@ def create_cleaned_table():
     cursor.execute("""
       SELECT column_name 
       FROM information_schema.columns 
-      WHERE table_name = 'covid_counties'
+      WHERE table_name = 'covid_counties_2'
       AND column_name NOT IN (
         SELECT column_name 
         FROM information_schema.columns 
@@ -40,7 +40,7 @@ def create_cleaned_table():
         cursor.execute(f"""
           SELECT data_type 
           FROM information_schema.columns 
-          WHERE table_name = 'covid_counties' 
+          WHERE table_name = 'covid_counties_2' 
           AND column_name = '{col_name}'
         """)
         col_type = cursor.fetchone()[0]
@@ -56,7 +56,7 @@ def create_cleaned_table():
      #deleting rows removed from source
     cursor.execute("""   
       DELETE FROM covid_counties_cleaned
-      WHERE fips NOT IN (SELECT fips FROM covid_counties WHERE fips IS NOT NULL)
+      WHERE fips NOT IN (SELECT fips FROM covid_counties_2 WHERE fips IS NOT NULL)
       AND fips IS NOT NULL
     """)
     deleted_count = cursor.rowcount
@@ -67,7 +67,7 @@ def create_cleaned_table():
     cursor.execute("""
       SELECT column_name 
       FROM information_schema.columns 
-      WHERE table_name = 'covid_counties'
+      WHERE table_name = 'covid_counties_2'
       ORDER BY ordinal_position
     """)
     common_columns = [row[0] for row in cursor.fetchall()]
@@ -77,7 +77,7 @@ def create_cleaned_table():
     cursor.execute(f"""
       INSERT INTO covid_counties_cleaned ({columns_list}, is_cleaned)
       SELECT {columns_str}, FALSE
-      FROM covid_counties src
+      FROM covid_counties_2 src
       LEFT JOIN covid_counties_cleaned cln ON src.fips = cln.fips
       WHERE cln.fips IS NULL AND src.fips IS NOT NULL
     """)
@@ -109,7 +109,7 @@ def create_cleaned_table():
 
   else:
     print("Creating a copy of the original table \n")
-    cursor.execute("CREATE TABLE covid_counties_cleaned AS SELECT * FROM covid_counties;")
+    cursor.execute("CREATE TABLE covid_counties_cleaned AS SELECT * FROM covid_counties_2;")
     cursor.execute("""
       ALTER TABLE covid_counties_cleaned 
       ADD COLUMN is_cleaned BOOLEAN DEFAULT FALSE
@@ -297,7 +297,7 @@ def create_cleaned_table():
 
   conn.commit()
   print("Summary")
-  cursor.execute("SELECT COUNT(*) FROM covid_counties")
+  cursor.execute("SELECT COUNT(*) FROM covid_counties_2")
   original_count = cursor.fetchone()[0]
   cursor.execute("SELECT COUNT(*) FROM covid_counties_cleaned")
   final_count = cursor.fetchone()[0]
