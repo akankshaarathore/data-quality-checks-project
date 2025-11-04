@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import os
+from datetime import datetime
 
 # Page Configuration
 st.set_page_config(
@@ -48,13 +50,41 @@ st.markdown("Comprehensive data quality analysis for the covid_counties dataset"
 # Load the data
 @st.cache_data
 def load_data():
-  try:
-    df = pd.read_csv('dq_results.csv')
-    return df
-  except FileNotFoundError:
-    st.error("Error: File not found.")
+    possible_paths = [
+        "/mnt/dq_persistent/dq_results.csv",  # Kubernetes PVC path
+        "dq_results.csv",  # Local fallback
+        "/mnt/data/dq_results.csv"  # Your original path
+    ]
+    
+    for file_path in possible_paths:
+        if os.path.exists(file_path):
+            try:
+                df = pd.read_csv(file_path)
+                return df, file_path
+            except Exception as e:
+                st.error(f"Error reading {file_path}: {str(e)}")
+                continue
+    
+    st.error("Could not find dq_results.csv in any expected location")
+    st.info(f"""
+    {chr(10).join(f"- {path}" for path in possible_paths)}
+    """)
+    
+    if os.path.exists("/mnt/dq_persistent"):
+        try:
+            files = os.listdir("/mnt/dq_persistent")
+            for f in files:
+                st.write(f"  - {f}")
+        except Exception as e:
+            st.write(f"  Error listing files: {e}")
+    else:
+        st.write("  Directory does not exist")
+    
     st.stop()
-df = load_data()
+
+df, file_path = load_data()
+
+st.divider()
 
 # Sidebar Filters
 st.sidebar.header("Filters")
@@ -380,4 +410,3 @@ if high_severity_fails > 0:
 medium_severity_fails = len(df[(df['severity'] == 'MEDIUM') & (df['passed'] == False)])
 if medium_severity_fails > 0:
   st.warning(f"**ATTENTION**: {medium_severity_fails} medium-severity checks failed. Review and address these issues to improve data quality.")
-
