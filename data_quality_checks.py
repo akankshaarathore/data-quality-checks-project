@@ -11,7 +11,7 @@ DB_CONFIG = {
   'password' : os.getenv('DB_PASSWORD', 'Qazokn@123')
 }
 
-def load_selected_columns(file_path='selected_columns_for_dq.txt'):
+def load_selected_columns(file_path='/mnt/dq_persistent/selected_columns_for_dq.txt'):
   try:
     with open(file_path, 'r') as f:
       content =  f.read()
@@ -127,7 +127,7 @@ except Exception as e:
   print(f"\n Database Connection failed: {e}")
   exit(1)
 
-cursor.execute("SELECT COUNT(*) FROM covid_counties")
+cursor.execute("SELECT COUNT(*) FROM covid_counties_2")
 total_rows = cursor.fetchone()[0]
 print(f"Total record in database: {total_rows:,}\n")
 
@@ -137,35 +137,35 @@ print("Data Quality Check 1: Completeness ")
 if 'identifiers' in SELECTED_COLUMNS:
   for col in SELECTED_COLUMNS['identifiers']:
     severity = 'HIGH' if col in ['fips', 'area_name', 'state'] else 'MEDIUM'
-    execute_check(cursor, f"{col} should not be NULL","Completness",  f"SELECT COUNT(*) FROM covid_counties WHERE {col} IS NULL", severity = severity)
+    execute_check(cursor, f"{col} should not be NULL","Completness",  f"SELECT COUNT(*) FROM covid_counties_2 WHERE {col} IS NULL", severity = severity)
 
 if 'population_base' in SELECTED_COLUMNS:
   for col in SELECTED_COLUMNS['population_base']:
     severity = 'HIGH' if 'pop_estimate' in col else 'MEDIUM'
-    execute_check(cursor, f"{col} should not be NULL","Completness", f"SELECT COUNT(*) FROM covid_counties WHERE {col} IS NULL", severity=severity)
+    execute_check(cursor, f"{col} should not be NULL","Completness", f"SELECT COUNT(*) FROM covid_counties_2 WHERE {col} IS NULL", severity=severity)
 
 if 'demographics_vulnerable' in SELECTED_COLUMNS:
   for col in SELECTED_COLUMNS['demographics_vulnerable']:
     severity = 'HIGH' if 'total_age65plus' in col else 'MEDIUM'
-    execute_check(cursor, f"{col} should not be NULL", "Completness", f"SELECT COUNT(*) FROM covid_counties WHERE {col} IS NULL", severity = severity)
+    execute_check(cursor, f"{col} should not be NULL", "Completness", f"SELECT COUNT(*) FROM covid_counties_2 WHERE {col} IS NULL", severity = severity)
 
 if 'healthcare_capacity' in SELECTED_COLUMNS:
   for col in SELECTED_COLUMNS['healthcare_capacity']:
     severity = 'HIGH' if col in ['icu_beds', 'total_hospitals_2019'] else 'MEDIUM'
-    execute_check(cursor, f"{col} should not be NULL", "Completness", f"SELECT COUNT(*) FROM covid_counties WHERE {col} IS NULL", severity = severity)
+    execute_check(cursor, f"{col} should not be NULL", "Completness", f"SELECT COUNT(*) FROM covid_counties_2 WHERE {col} IS NULL", severity = severity)
 
 if 'socioeconomic' in SELECTED_COLUMNS:
   for col in SELECTED_COLUMNS['socioeconomic']:
     severity = 'HIGH' if col in ['unemployment_rate_2018', 'median_household_income_2018'] else 'MEDIUM'
     execute_check(cursor, f"{col} should not be NULL", "Completness",
-    f"SELECT COUNT(*) FROM covid_counties WHERE {col} IS NULL",
+    f"SELECT COUNT(*) FROM covid_counties_2 WHERE {col} IS NULL",
     severity=severity)
 
 if 'density_urbanization' in SELECTED_COLUMNS:
   for col in SELECTED_COLUMNS['density_urbanization']:
     severity = 'HIGH' if col in ['density_per_square_mile_of_land_area_population', 'area_in_square_miles_land_area'] else 'MEDIUM'
     execute_check(cursor, f"{col} should not be NULL", "Completness",
-    f"SELECT COUNT(*) FROM covid_counties WHERE {col} IS NULL",
+    f"SELECT COUNT(*) FROM covid_counties_2 WHERE {col} IS NULL",
     severity=severity)
 
 #Check2: Uniqueness (Records should be unique)
@@ -173,7 +173,7 @@ print("Data Quality Check 2: Uniqueness")
 if 'fips' in ALL_SELECTED_COLUMNS:
   execute_check(cursor, "No duplicate FIPS codes (primary key)","Uniqueness", """SELECT COUNT(*) FROM (
         SELECT fips, COUNT(*) as cnt 
-        FROM covid_counties 
+        FROM covid_counties_2 
         WHERE fips IS NOT NULL
         GROUP BY fips 
         HAVING COUNT(*) > 1
@@ -183,7 +183,7 @@ if 'area_name' in ALL_SELECTED_COLUMNS:
   execute_check(cursor, "No duplicate area names", "Uniqueness",
     """SELECT COUNT(*) FROM (
        SELECT area_name, COUNT(*) as cnt 
-       FROM covid_counties 
+       FROM covid_counties_2 
        WHERE area_name IS NOT NULL
        GROUP BY area_name 
        HAVING COUNT(*) > 1
@@ -194,7 +194,7 @@ print("Data Quality Checks 3 : Conformity")
 if 'fips' in ALL_SELECTED_COLUMNS:
   execute_check(cursor, "FIPS codes must be 5 digits (standard US format)", "Conformity",
     """SELECT COUNT(*) 
-       FROM covid_counties 
+       FROM covid_counties_2 
        WHERE fips IS NOT NULL 
        AND (LENGTH(fips::text) != 5 OR fips::text !~ '^[0-9]+$')""", severity='HIGH')
 
@@ -202,14 +202,14 @@ numeric_fields = ['pop_estimate_2018', 'icu_beds', 'total_hospitals_2019']
 for col in numeric_fields:
   if col in ALL_SELECTED_COLUMNS:
     execute_check(cursor, f"{col} must be non-negative","Conformity",
-    f"SELECT COUNT(*) FROM covid_counties WHERE {col} IS NOT NULL AND {col} < 0", severity='HIGH')
+    f"SELECT COUNT(*) FROM covid_counties_2 WHERE {col} IS NOT NULL AND {col} < 0", severity='HIGH')
 
 #Check4: Accuracy (Values should be reasonable and realistic)
 print("Data Quality Checks: Accuracy")
 
 if 'total_age65plus' in ALL_SELECTED_COLUMNS and 'pop_estimate_2018' in ALL_SELECTED_COLUMNS:
   execute_check(cursor, "Age 65+ cannot exceed total population", "Accuracy", """SELECT COUNT(*) 
-    FROM covid_counties 
+    FROM covid_counties_2 
     WHERE total_age65plus > pop_estimate_2018 
     AND total_age65plus IS NOT NULL 
     AND pop_estimate_2018 IS NOT NULL""",
@@ -217,7 +217,7 @@ if 'total_age65plus' in ALL_SELECTED_COLUMNS and 'pop_estimate_2018' in ALL_SELE
 
 if all(col in ALL_SELECTED_COLUMNS for col in ['male_age65plus', 'female_age65plus', 'total_age65plus']):
   execute_check(cursor, "Male + Female age 65+ should not exceed Total age 65+", "Accuracy", """SELECT COUNT(*) 
-    FROM covid_counties 
+    FROM covid_counties_2 
     WHERE (male_age65plus + female_age65plus) > total_age65plus * 1.01
     AND male_age65plus IS NOT NULL 
     AND female_age65plus IS NOT NULL 
@@ -227,7 +227,7 @@ if all(col in ALL_SELECTED_COLUMNS for col in ['male_age65plus', 'female_age65pl
 if 'icu_beds' in ALL_SELECTED_COLUMNS and 'pop_estimate_2018' in ALL_SELECTED_COLUMNS:
   execute_check(cursor, "ICU beds cannot exceed population", "Accuracy",
     """SELECT COUNT(*) 
-    FROM covid_counties 
+    FROM covid_counties_2 
     WHERE icu_beds > pop_estimate_2018 
     AND icu_beds IS NOT NULL 
     AND pop_estimate_2018 IS NOT NULL""",
@@ -235,19 +235,19 @@ if 'icu_beds' in ALL_SELECTED_COLUMNS and 'pop_estimate_2018' in ALL_SELECTED_CO
 
 if 'total_hospitals_2019' in ALL_SELECTED_COLUMNS:
   execute_check(cursor, "Hospital count should be realistic (<1000 per county)", "Accuracy",
-    "SELECT COUNT(*) FROM covid_counties WHERE total_hospitals_2019 > 1000",
+    "SELECT COUNT(*) FROM covid_counties_2 WHERE total_hospitals_2019 > 1000",
     severity='MEDIUM')
   
 if 'unemployment_rate_2018' in ALL_SELECTED_COLUMNS:
   execute_check(cursor, "Unemployment rate must be between 0-100%", "Accuracy", """SELECT COUNT(*) 
-    FROM covid_counties 
+    FROM covid_counties_2 
     WHERE unemployment_rate_2018 IS NOT NULL 
     AND (unemployment_rate_2018 < 0 OR unemployment_rate_2018 > 100)""",
     severity='MEDIUM')
   
 if 'pctpovall_2018' in ALL_SELECTED_COLUMNS:
   execute_check(cursor, "Poverty rate must be between 0-100%", "Accuracy", """SELECT COUNT(*) 
-    FROM covid_counties 
+    FROM covid_counties_2 
     WHERE pctpovall_2018 IS NOT NULL 
     AND (pctpovall_2018 < 0 OR pctpovall_2018 > 100)""",
     severity='MEDIUM')
@@ -256,7 +256,7 @@ fraction_cols = [col for col in ALL_SELECTED_COLUMNS if 'fraction_of_' in col]
 for col in fraction_cols:
   execute_check(cursor, f"{col} must be between 0-1", "Accuracy", 
     f"""SELECT COUNT(*) 
-    FROM covid_counties 
+    FROM covid_counties_2 
     WHERE {col} IS NOT NULL 
     AND ({col} < 0 OR {col} > 1)""",
     severity='MEDIUM')
@@ -266,7 +266,7 @@ print("Data Quality Checks: Integrity")
 if all(col in ALL_SELECTED_COLUMNS for col in ['male_age65plus', 'female_age65plus', 'total_age65plus']):
   execute_check(cursor, "Male + Female age 65+ should equal Total age 65+ (±10)", "Integrity",
     """SELECT COUNT(*) 
-    FROM covid_counties 
+    FROM covid_counties_2 
     WHERE male_age65plus IS NOT NULL 
     AND female_age65plus IS NOT NULL 
     AND total_age65plus IS NOT NULL
@@ -279,7 +279,7 @@ print("Data Quality Checks: Consistency")
 if all(col in ALL_SELECTED_COLUMNS for col in ['density_per_square_mile_of_land_area_population','pop_estimate_2018', 'area_in_square_miles_land_area']):
   execute_check(cursor, "Population density consistent with pop/land area (±1)", "Consistency",
     """SELECT COUNT(*) 
-    FROM covid_counties 
+    FROM covid_counties_2 
     WHERE pop_estimate_2018 IS NOT NULL 
     AND area_in_square_miles_land_area IS NOT NULL 
     AND area_in_square_miles_land_area > 0
@@ -294,7 +294,7 @@ print("Data Quality Checks : Validity")
 if 'area_in_square_miles_land_area' in ALL_SELECTED_COLUMNS:
   execute_check(cursor, "Land area must be positive", "Validity",
     """SELECT COUNT(*) 
-    FROM covid_counties 
+    FROM covid_counties_2 
     WHERE area_in_square_miles_land_area IS NOT NULL 
     AND area_in_square_miles_land_area <= 0""",
     severity='HIGH')
@@ -302,7 +302,7 @@ if 'area_in_square_miles_land_area' in ALL_SELECTED_COLUMNS:
 if 'median_household_income_2018' in ALL_SELECTED_COLUMNS:
   execute_check(cursor, "Median income must be positive", "Validity",
     """SELECT COUNT(*) 
-    FROM covid_counties 
+    FROM covid_counties_2 
     WHERE median_household_income_2018 IS NOT NULL 
     AND median_household_income_2018 <= 0""",
     severity='MEDIUM')
@@ -333,6 +333,12 @@ for dq_check, stats in sorted(dq_checks.items()):
 df_results = pd.DataFrame(dq_results['checks'])
 visualisations_columns = ['check_name', 'dq_check', 'status', 'severity', 'result_value', 'passed']
 df_visualisation = df_results[visualisations_columns]
-df_visualisation.to_csv('dq_results.csv',index=False)
+
+output_dir = '/mnt/dq_persistent'
+os.makedirs(output_dir, exist_ok=True)
+output_path = os.path.join(output_dir, 'dq_results.csv')
+df_visualisation.to_csv(output_path, index=False)
+print(f"Saved DQ results to: {output_path}")
+print(f"Total checks in this run: {len(df_visualisation)}")
 cursor.close()
 conn.close()
