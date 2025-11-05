@@ -48,46 +48,65 @@ st.title("COVID-19 Counties Data Quality Dashboard")
 st.markdown("Comprehensive data quality analysis for the covid_counties dataset")
 
 # Load the data
-@st.cache_data
+@st.cache_data(ttl=60)
 def load_data():
-    possible_paths = [
-        "/mnt/dq_persistent/dq_results.csv",  # Kubernetes PVC path
-        "dq_results.csv",  # Local fallback
-        "/mnt/data/dq_results.csv"  # Your original path
-    ]
+  possible_paths = [
+    "/mnt/dq_persistent/dq_results.csv",  # Kubernetes PVC path
+  ]    
+  for file_path in possible_paths:
+    if os.path.exists(file_path):
+      try:
+        file_mtime = os.path.getmtime(file_path)
+        df = pd.read_csv(file_path)
+        if 'input_date' in df.columns:
+          df['input_date'] = pd.to_datetime(df['input_date']).dt.date
+          return df, file_path, file_mtime
+      except Exception as e:
+        st.error(f"Error reading {file_path}: {str(e)}")
+        continue
     
-    for file_path in possible_paths:
-        if os.path.exists(file_path):
-            try:
-                df = pd.read_csv(file_path)
-                return df, file_path
-            except Exception as e:
-                st.error(f"Error reading {file_path}: {str(e)}")
-                continue
-    
-    st.error("Could not find dq_results.csv in any expected location")
-    st.info(f"""
+  st.error("Could not find dq_results.csv in any expected location")
+  st.info(f"""
     {chr(10).join(f"- {path}" for path in possible_paths)}
     """)
     
-    if os.path.exists("/mnt/dq_persistent"):
-        try:
-            files = os.listdir("/mnt/dq_persistent")
-            for f in files:
-                st.write(f"  - {f}")
-        except Exception as e:
-            st.write(f"  Error listing files: {e}")
+  if os.path.exists("/mnt/dq_persistent"):
+    try:
+      files = os.listdir("/mnt/dq_persistent")
+      for f in files:
+        st.write(f"  - {f}")
+    except Exception as e:
+      st.write(f"  Error listing files: {e}")
     else:
-        st.write("  Directory does not exist")
+      st.write("  Directory does not exist")
     
     st.stop()
 
-df, file_path = load_data()
+df, file_path, _ = load_data()
 
 st.divider()
 
 # Sidebar Filters
 st.sidebar.header("Filters")
+
+if 'input_date' in df.columns:
+  cleaned_dates = (
+        df['input_date']
+        .dropna()
+        .map(lambda x: pd.to_datetime(x, errors='coerce').date() if not pd.isna(x) else None)
+        .unique()
+    )
+  available_dates = sorted(cleaned_dates)
+  date_filter = st.sidebar.multiselect(
+    "Input Date",
+    options=available_dates,
+    default=available_dates,
+    format_func=lambda x: x.strftime('%Y-%m-%d') if hasattr(x, 'strftime') else str(x)
+  )
+else:
+  date_filter = None
+  st.sidebar.warning("No 'input_date' column found in data")
+
 dq_check_filter = st.sidebar.multiselect(
   "Data Quality Check Type",
   options=sorted(df['dq_check'].unique()),
@@ -113,14 +132,23 @@ filtered_df = df[
   (df['status'].isin(status_filter))
 ]
 
+if date_filter is not None and len(date_filter) > 0:
+  filtered_df = filtered_df[filtered_df['input_date'].isin(date_filter)]
+
+if 'input_date' in df.columns and date_filter:
+  if len(date_filter) == 1:
+    st.info(f"Showing data for: **{date_filter[0].strftime('%Y-%m-%d')}**")
+  else:
+    st.info(f"Showing data for **{len(date_filter)}** dates: {date_filter[0].strftime('%Y-%m-%d')} to {date_filter[-1].strftime('%Y-%m-%d')}")
+
 # Key Metrics
 st.header("Key Metrics")
 col1, col2, col3, col4, col5 = st.columns(5)
-total_checks = len(df)
-passed_checks = len(df[df['passed'] == True])
-failed_checks = len(df[df['passed'] == False])
+total_checks = len(filtered_df)
+passed_checks = len(filtered_df[filtered_df['passed'] == True])
+failed_checks = len(filtered_df[filtered_df['passed'] == False])
 pass_rate = (passed_checks / total_checks * 100) if total_checks > 0 else 0
-high_severity_fails = len(df[(df['severity'] == 'HIGH') & (df['passed'] == False)])
+high_severity_fails = len(filtered_df[(filtered_df['severity'] == 'HIGH') & (filtered_df['passed'] == False)])
 
 col1.metric("Total Checks", total_checks)
 col2.metric("Passed", passed_checks, delta=f"{pass_rate:.1f}%")
@@ -136,7 +164,7 @@ row1_col1, row1_col2 = st.columns(2)
 
 with row1_col1:
   st.subheader("Status Distribution")
-  status_counts = df['status'].value_counts()
+  status_counts = filtered_df['status'].value_counts()
   fig_status = px.pie(
     values=status_counts.values,
     names=status_counts.index,
@@ -155,7 +183,7 @@ with row1_col1:
 
 with row1_col2:
   st.subheader("Category Distribution")
-  dq_check_stats = df.groupby('dq_check').agg({
+  dq_check_stats = filtered_df.groupby('dq_check').agg({
     'passed': ['sum', 'count']
   }).reset_index()
   dq_check_stats.columns = ['dq_check', 'passed_count', 'total_count']
@@ -193,7 +221,7 @@ st.divider()
 # Row2: DQ Checks Category Breakdown
 st.header("Data Quality Check Category Analysis")
 st.subheader("Checks by Category")
-dq_check_breakdown = df.groupby(['dq_check', 'status']).size().reset_index(name='count')
+dq_check_breakdown = filtered_df.groupby(['dq_check', 'status']).size().reset_index(name='count')
 fig_breakdown = px.bar(
   dq_check_breakdown,
   x='dq_check',
@@ -218,10 +246,10 @@ st.plotly_chart(fig_breakdown, use_container_width=True)
 
 st.markdown("### Category-wise Performance Summary")
 summary_cols = st.columns(4)
-categories = sorted(df['dq_check'].unique())
+categories = sorted(filtered_df['dq_check'].unique())
 for idx, category in enumerate(categories):
   with summary_cols[idx % 4]:
-    cat_data = df[df['dq_check'] == category]
+    cat_data = filtered_df[filtered_df['dq_check'] == category]
     cat_passed = len(cat_data[cat_data['passed'] == True])
     cat_total = len(cat_data)
     cat_pass_rate = (cat_passed / cat_total * 100) if cat_total > 0 else 0
@@ -236,7 +264,7 @@ st.divider()
 
 # Row3: Failed Checks Analysis by Category
 st.header("Failed Checks Analysis by Category")
-failed_df = df[df['passed'] == False]
+failed_df = filtered_df[filtered_df['passed'] == False]
 
 if len(failed_df) > 0:
   row3_col1, row3_col2 = st.columns([2.5, 1])
@@ -365,13 +393,20 @@ st.header("Detailed Check Results")
 # Add search functionality
 search_term = st.text_input("Search checks", placeholder="Type to filter checks...")
 if search_term:
-  display_df = filtered_df[filtered_df['check_name'].str.contains(search_term, case=False)]
+  display_df = filtered_df[filtered_df['check_name'].str.contains(search_term, case=False, na=False)]
 else:
   display_df = filtered_df
 
 display_columns = ['check_name', 'dq_check', 'status', 'severity', 'result_value', 'passed']
+if 'input_date' in display_df.columns:
+  display_columns.insert(2, 'input_date')
 display_df_show = display_df[display_columns].copy()
 display_df_show['passed'] = display_df_show['passed'].map({True: '🟢', False: '🔴'})
+
+if 'input_date' in display_df_show.columns:
+  display_df_show['input_date'] = display_df_show['input_date'].apply(
+  lambda x: x.strftime('%Y-%m-%d') if hasattr(x, 'strftime') else str(x)
+  )
 
 # Color coding function
 def highlight_status(row):
@@ -394,7 +429,7 @@ st.dataframe(
 # Download Button
 st.download_button(
   label=" Download Full Results as CSV",
-  data=df.to_csv(index=False).encode('utf-8'),
+  data=filtered_df.to_csv(index=False).encode('utf-8'),
   file_name='dq_results_export.csv',
   mime='text/csv',
   use_container_width=True
@@ -407,6 +442,6 @@ st.markdown("### Conclusion")
 if high_severity_fails > 0:
   st.error(f"**URGENT**: {high_severity_fails} high-severity checks failed. These should be addressed immediately as they impact critical data fields.")
 
-medium_severity_fails = len(df[(df['severity'] == 'MEDIUM') & (df['passed'] == False)])
+medium_severity_fails = len(filtered_df[(filtered_df['severity'] == 'MEDIUM') & (filtered_df['passed'] == False)])
 if medium_severity_fails > 0:
   st.warning(f"**ATTENTION**: {medium_severity_fails} medium-severity checks failed. Review and address these issues to improve data quality.")

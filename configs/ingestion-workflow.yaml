@@ -1,0 +1,243 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: covid-ingestion-pipeline-
+  namespace: argo
+spec:
+  serviceAccountName: argo-workflow
+  podGC:
+    strategy: OnWorkflowSuccess
+    deleteDelayDuration: "5m"
+  entrypoint: ingestion-pipeline
+
+  volumes:
+    - name: dq-results-storage
+      persistentVolumeClaim:
+        claimName: dq-results-pvc
+    - name: scripts-storage
+      persistentVolumeClaim:
+        claimName: scripts-pvc
+
+  arguments:
+    parameters:
+      - name: ingest-date
+        value: "2025-10-26" #default value
+
+  templates:
+    - name: ingestion-pipeline
+      steps:
+        - - name: split-csv
+            template: split-csv-step
+
+        - - name: ingest-data
+            template: ingest-data-step
+
+        - - name: data-profiling
+            template: data-profiling-step
+
+        - - name: dq-checks
+            template: dq-checks-step
+
+        - - name: generate-visualisation
+            template: generate-visualisation-step
+
+        - - name: data-cleaning
+            template: data-cleaning-step
+
+    - name: split-csv-step
+      container:
+        image: covid-ingestion-pipeline:v4
+        imagePullPolicy: Never
+        command: [sh, -c]
+        args:
+          - |
+            mkdir -p /mnt/dq_persistent/data && 
+            python /mnt/scripts/split_csv.py
+        volumeMounts:
+          - name: dq-results-storage
+            mountPath: /mnt/dq_persistent
+          - name: scripts-storage
+            mountPath: /mnt/scripts
+            readOnly: true
+
+    - name: ingest-data-step
+      container:
+        image: covid-ingestion-pipeline:v4
+        imagePullPolicy: Never
+        command: [sh, -c]
+        args:
+          - |
+            cd /mnt/dq_persistent && 
+            python /mnt/scripts/data_ingestion_2.py {{workflow.parameters.ingest-date}}
+        env:
+          - name: DB_HOST
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_HOST
+          - name: DB_PORT
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_PORT
+          - name: DB_NAME
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_NAME
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_USER
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_PASSWORD
+        volumeMounts:
+          - name: dq-results-storage
+            mountPath: /mnt/dq_persistent
+          - name: scripts-storage
+            mountPath: /mnt/scripts
+
+    - name: data-profiling-step
+      container:
+        image: covid-ingestion-pipeline:v4
+        imagePullPolicy: Never
+        command: [sh, -c]
+        args:
+          - |
+            cd /mnt/dq_persistent && 
+            python /mnt/scripts/data_profiler.py
+        env:
+          - name: DB_HOST
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_HOST
+          - name: DB_PORT
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_PORT
+          - name: DB_NAME
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_NAME
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_USER
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_PASSWORD
+        volumeMounts:
+          - name: dq-results-storage
+            mountPath: /mnt/dq_persistent
+          - name: scripts-storage
+            mountPath: /mnt/scripts
+            readOnly: true
+
+    - name: dq-checks-step
+      container:
+        image: covid-ingestion-pipeline:v4
+        imagePullPolicy: Never
+        command: [sh, -c]
+        args:
+          - |
+            cd /mnt/dq_persistent && 
+            python /mnt/scripts/data_quality_checks.py
+        env:
+          - name: DB_HOST
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_HOST
+          - name: DB_PORT
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_PORT
+          - name: DB_NAME
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_NAME
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_USER
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_PASSWORD
+        volumeMounts:
+          - name: dq-results-storage
+            mountPath: /mnt/dq_persistent
+          - name: scripts-storage
+            mountPath: /mnt/scripts
+            readOnly: true
+
+    - name: generate-visualisation-step
+      container:
+        image: covid-ingestion-pipeline:v4
+        imagePullPolicy: Never
+        command: [sh, -c]
+        args:
+          - |
+            cd /mnt/dq_persistent && 
+            echo "DQ results CSV generated in previous step" &&
+            echo "Copy dq_results.csv to local for Streamlit visualization" &&
+            ls -lh /mnt/dq_persistent/*.csv
+        volumeMounts:
+          - name: dq-results-storage
+            mountPath: /mnt/dq_persistent
+
+    - name: data-cleaning-step
+      container:
+        image: covid-ingestion-pipeline:v4
+        imagePullPolicy: Never
+        command: [sh, -c]
+        args:
+          - |
+            cd /mnt/dq_persistent && 
+            python /mnt/scripts/data_cleaning.py
+        env:
+          - name: DB_HOST
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_HOST
+          - name: DB_PORT
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_PORT
+          - name: DB_NAME
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_NAME
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_USER
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: DB_PASSWORD
+        volumeMounts:
+          - name: dq-results-storage
+            mountPath: /mnt/dq_persistent
+          - name: scripts-storage
+            mountPath: /mnt/scripts
+            readOnly: true

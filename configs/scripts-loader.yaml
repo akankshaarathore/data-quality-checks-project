@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: scripts-loader
+  namespace: argo
+spec:
+  containers:
+    - name: uploader
+      image: alpine
+      command: ["/bin/sh", "-c", "sleep 3600"]
+      volumeMounts:
+        - name: scripts-storage
+          mountPath: /mnt/scripts
+        - name: dq-results-storage
+          mountPath: /mnt/dq_persistent
+  volumes:
+    - name: scripts-storage
+      persistentVolumeClaim:
+        claimName: scripts-pvc
+    - name: dq-results-storage
+      persistentVolumeClaim:
+        claimName: dq-results-pvc
+  restartPolicy: Never

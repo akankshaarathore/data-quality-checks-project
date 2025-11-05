@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamlit-dashboard
+  namespace: argo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: streamlit-dashboard
+  template:
+    metadata:
+      labels:
+        app: streamlit-dashboard
+    spec:
+      containers:
+        - name: streamlit
+          image: covid-ingestion-pipeline:v4
+          imagePullPolicy: Never
+          command: ["streamlit", "run", "/mnt/scripts/dq_dashboard.py"]
+          args:
+            - "--server.port=8501"
+            - "--server.address=0.0.0.0"
+            - "--server.headless=true"
+            - "--server.fileWatcherType=none"
+            - "--server.runOnSave=false"
+          ports:
+            - containerPort: 8501
+              name: streamlit
+          volumeMounts:
+            - name: dq-results-storage
+              mountPath: /mnt/dq_persistent
+            - name: scripts-storage
+              mountPath: /mnt/scripts
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: dq-results-storage
+          persistentVolumeClaim:
+            claimName: dq-results-pvc
+        - name: scripts-storage
+          persistentVolumeClaim:
+            claimName: scripts-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamlit-service
+  namespace: argo
+spec:
+  type: NodePort
+  selector:
+    app: streamlit-dashboard
+  ports:
+    - port: 8501
+      targetPort: 8501
+      nodePort: 30850
+      protocol: TCP
+      name: streamlit
