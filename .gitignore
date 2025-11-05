@@ -15,3 +15,4 @@ env/
 *.exe
 workflow.json
 selected_columns_for_dq.txt
+*secret*.yaml
