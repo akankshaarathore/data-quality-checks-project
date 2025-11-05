@@ -2,7 +2,15 @@
 .env
 __pycache__/
 *.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
 .kaggle/
 data/
 *.log
 venv/
+env/
+*.exe
+workflow.json
