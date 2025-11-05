@@ -35,6 +35,7 @@ Large-scale public health datasets often suffer from:
 4. **Data Profiling** - Intelligent column selection (348 → 30)
 5. **Quality Checks** - Multi-dimensional validation
 6. **Visualization** - Interactive Streamlit dashboard
+7. **Data Cleaning** - Systematic data remediation
 
 ---
 
@@ -124,6 +125,139 @@ We rank all 348 columns using weighted criteria:
 
 ---
 
+## 📊 Interactive Visualization Dashboard
+
+### Purpose
+Transform raw quality check results into actionable insights through an intuitive, filterable dashboard
+
+### Key Features
+
+#### Overview Metrics
+- **Total Checks**: Aggregate count of all validations performed
+- **Pass Rate**: Percentage of checks meeting quality standards
+- **Failed Checks**: Count and breakdown by severity (HIGH/MEDIUM/LOW)
+- **High Severity Failures**: Critical issues requiring immediate attention
+
+#### Visual Analytics
+
+**Status Distribution (Pie Chart)**  
+Quick overview of PASS/FAIL/ERROR proportions across all checks
+
+**Category Performance (Bar Charts)**  
+- Pass rate by DQ check type (Completeness, Uniqueness, etc.)
+- Horizontal bars showing performance ranking
+- Color-coded by pass rate threshold
+
+**DQ Checks Category Breakdown (Grouped Bar Chart)**  
+Side-by-side comparison of PASS/FAIL counts within each quality dimension
+
+**Category-wise Performance Summary (Metric Cards)**  
+Individual scorecards for each DQ dimension with:
+- Pass/fail counts
+- Pass rate percentage
+- Visual indicator (🟢/🟡/🔴)
+
+**Failed Checks Analysis (Stacked Bar Chart)**  
+Failed checks grouped by category and severity level to prioritize remediation efforts
+
+**Failure Summary Panel**  
+Aggregate metrics:
+- Total failures
+- HIGH/MEDIUM/LOW severity breakdowns
+- Total records affected
+
+**Top 10 Issues (Horizontal Bar Chart)**  
+Most impactful quality problems ranked by number of records affected
+
+#### Interactive Features
+- **Multi-select filters**: Filter by DQ check type, severity, and status
+- **Search functionality**: Find specific checks by name
+- **Detailed results table**: Sortable, searchable table with all check details
+- **CSV export**: Download full results for external analysis
+- **Conclusion alerts**: Contextual warnings/success messages based on findings
+
+### Technology
+- **Framework**: Streamlit for reactive web interface
+- **Visualization**: Plotly for interactive charts
+- **Styling**: Custom CSS with dark theme optimized for readability
+
+---
+
+## 🧹 Data Cleaning
+
+### Purpose
+Systematically remediate identified quality issues to produce a clean, analysis-ready dataset
+
+### Cleaning Strategy
+
+#### Table Management
+**Target Table**: `covid_counties_cleaned`  
+**Approach**: Copy-on-write with change tracking
+
+**Operations**:
+1. Create cleaned table if not exists (mirrors source schema)
+2. Sync schema changes from source table
+3. Identify uncleaned rows using `is_cleaned` flag
+4. Apply targeted fixes based on severity
+
+#### Completeness Fixes
+
+**HIGH Severity Fields (6 critical columns)**  
+Strategy: Fill NULLs using **state median → national median fallback**
+
+Rationale: State-level medians preserve geographic patterns; national median provides universal fallback
+
+**MEDIUM Severity Fields (21 columns)**  
+Strategy: Fill NULLs using **state average → national average fallback**
+
+Rationale: Average better for rate-based metrics; less sensitive to outliers
+
+Target categories:
+- Healthcare workforce metrics (physicians, specialists, primary care)
+- Medical education retention rates
+- Physician demographic fractions
+- Income percentages relative to state totals
+- Population density measures
+
+#### Consistency Fixes
+
+**Population Density Recalculation**
+
+**Issue**: Derived density values don't match formula `density = population / land_area`
+
+**Fix**: Recalculate using: `density = ROUND(population / land_area, 2)`
+
+### Cleaning Workflow
+
+1. **Setup Phase**
+   - Verify `covid_counties_cleaned` table exists
+   - Sync any new columns from source
+   - Delete rows removed from source (referential integrity)
+   - Insert new uncleaned rows from source
+
+2. **Execution Phase**
+   - Apply HIGH severity completeness fixes (median-based)
+   - Apply MEDIUM severity completeness fixes (average-based)
+   - Recalculate inconsistent derived values
+   - Validate fixes with post-cleaning checks
+
+3. **Finalization Phase**
+   - Mark cleaned rows with `is_cleaned = TRUE`
+   - Generate summary report (original vs cleaned counts)
+   - Output null reduction metrics
+
+### Data Lineage
+
+**Source Table**: `covid_counties` (unchanged, preserves raw data)  
+**Cleaned Table**: `covid_counties_cleaned` (analysis-ready, with `is_cleaned` tracking)
+
+This separation ensures:
+- Raw data is never overwritten
+- Cleaning process is auditable
+- Re-cleaning is idempotent (can be run multiple times safely)
+
+---
+
 ## 🛠️ Technology Stack
 
 - **Database**: PostgreSQL 14+
@@ -164,6 +298,7 @@ covid_data_analysis/
 ├── data_profiler.py               # Column selection algorithm
 ├── data_quality_checks.py         # DQ validation engine
 ├── dq_dashboard.py                # Streamlit visualization
+├── data_cleaning.py               # Automated data remediation
 ├── generate_flowchart.py          # Documentation generator
 ├── selected_columns_for_dq.txt    # Top 30 columns
 ├── dq_results.csv                 # Quality check results
