@@ -14,7 +14,7 @@ DB_CONFIG = {
 
 input_date = sys.argv[1] if len(sys.argv) > 1 else None
 
-def load_selected_columns(file_path='/mnt/dq_persistent/selected_columns_for_dq.txt'):
+def load_selected_columns(file_path='/mnt/scripts/selected_columns_for_dq.txt'):
   try:
     with open(file_path, 'r') as f:
       content =  f.read()

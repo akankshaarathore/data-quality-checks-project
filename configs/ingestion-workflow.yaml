@@ -141,7 +141,6 @@ spec:
             mountPath: /mnt/dq_persistent
           - name: scripts-storage
             mountPath: /mnt/scripts
-            readOnly: true
 
     - name: dq-checks-step
       container:

@@ -10,7 +10,7 @@ DB_CONFIG = {
   'password': os.getenv('DB_PASSWORD', 'Qazokn@123')
 }
 
-LOCKED_FILE = "/mnt/dq_persistent/selected_columns_for_dq.txt"
+LOCKED_FILE = "/mnt/scripts/selected_columns_for_dq.txt"
 
 #Domains suited for dataset
 ANALYTICAL_DOMAINS = {
@@ -72,6 +72,8 @@ if os.path.exists(LOCKED_FILE):
     content = f.read()
   print(content)
   exit(0)
+
+print("No locked columns found. Performing initial profiling to select columns")
 
 # Connect to database
 conn = psycopg2.connect(**DB_CONFIG)
@@ -229,10 +231,10 @@ for domain, config in ANALYTICAL_DOMAINS.items():
 selected_col_names = [col['column_name'] for col in selected_columns]
 
 # Save as Python list for DQ script
-output_dir = "/mnt/dq_persistent"
-os.makedirs(output_dir, exist_ok=True)
+output_dir = "/mnt/scripts"
+output_path = os.path.join(output_dir, "selected_columns_for_dq.txt")
 
-with open(LOCKED_FILE, 'w') as f:
+with open(output_path, 'w') as f:
   f.write("# Auto-selected columns for COVID-19 NPI Data Quality Checks\n")
   f.write(f"# Generated: {pd.Timestamp.now()}\n")
   f.write(f"# Total selected: {len(selected_col_names)} out of 348\n\n")
@@ -245,7 +247,7 @@ with open(LOCKED_FILE, 'w') as f:
   for domain, count in domain_counts.items():
     f.write(f"# {domain}: {count} columns\n")
 
-print(f"\n Selected columns saved to: {LOCKED_FILE}")
+print(f"\n Selected columns saved to: {output_path}")
 
 print("Data Profiling Completed")
 
